@@ -1,0 +1,156 @@
+"use client";
+
+import dynamic from "next/dynamic";
+import { useCallback, useMemo, useState } from "react";
+import { api } from "@/lib/api";
+import { usePolledData } from "@/hooks/usePolledData";
+import { useFlightsWebSocket } from "@/hooks/useFlightsWebSocket";
+import { KpiPanel } from "@/components/panels/KpiPanel";
+import { PipelineHealthStrip } from "@/components/panels/PipelineHealthStrip";
+import { AnomalyFeed } from "@/components/panels/AnomalyFeed";
+import { ChartsPanel } from "@/components/panels/ChartsPanel";
+import { LayerControls } from "@/components/panels/LayerControls";
+import { Skeleton } from "@/components/ui/States";
+import { REGIONS, defaultRegion, type RegionId } from "@/lib/regions";
+import type { AnomalyEvent, LiveFlight, TrajectoryResponse } from "@/types/api";
+
+// Leaflet touches `window` at import time — importing it during Next.js SSR
+// crashes the render. next/dynamic with ssr:false is mandatory here.
+const FlightMap = dynamic(() => import("@/components/map/FlightMap"), {
+  ssr: false,
+  loading: () => <Skeleton className="h-full w-full rounded-none" />,
+});
+
+export default function DashboardPage() {
+  const { flights, status: wsStatus } = useFlightsWebSocket();
+  const { data: corridorsData } = usePolledData(() => api.corridors(200), 120000);
+  const { data: anomaliesData } = usePolledData(() => api.anomalies(1, 100), 15000);
+
+  const [regionId, setRegionId] = useState<RegionId>(defaultRegion());
+  const [showAircraft, setShowAircraft] = useState(true);
+  const [showCorridors, setShowCorridors] = useState(true);
+  const [anomaliesOnly, setAnomaliesOnly] = useState(false);
+  const [corridorLimit, setCorridorLimit] = useState(20);
+
+  const [anomalyFeedCollapsed, setAnomalyFeedCollapsed] = useState(false);
+  const [chartsCollapsed, setChartsCollapsed] = useState(false);
+
+  const [selectedIcao24, setSelectedIcao24] = useState<string | null>(null);
+  const [flyToTarget, setFlyToTarget] = useState<[number, number] | null>(null);
+  const [trajectory, setTrajectory] = useState<TrajectoryResponse | null>(null);
+
+  const anomalyByIcao = useMemo(() => {
+    const map = new Map<string, AnomalyEvent>();
+    for (const event of anomaliesData?.events ?? []) {
+      map.set(event.icao24, event);
+    }
+    return map;
+  }, [anomaliesData]);
+
+  const visibleCorridors = useMemo(
+    () => (corridorsData?.corridors ?? []).slice(0, corridorLimit),
+    [corridorsData, corridorLimit],
+  );
+
+  const selectAircraft = useCallback((flight: LiveFlight) => {
+    setSelectedIcao24(flight.icao24);
+    if (flight.latitude != null && flight.longitude != null) {
+      setFlyToTarget([flight.latitude, flight.longitude]);
+    }
+    api
+      .trajectory(flight.icao24)
+      .then(setTrajectory)
+      .catch(() => setTrajectory(null));
+  }, []);
+
+  const selectAnomaly = useCallback(
+    (event: AnomalyEvent) => {
+      setSelectedIcao24(event.icao24);
+      if (event.latitude != null && event.longitude != null) {
+        setFlyToTarget([event.latitude, event.longitude]);
+      }
+      const liveMatch = flights.find((f) => f.icao24 === event.icao24);
+      if (liveMatch) {
+        api
+          .trajectory(event.icao24)
+          .then(setTrajectory)
+          .catch(() => setTrajectory(null));
+      } else {
+        setTrajectory(null);
+      }
+    },
+    [flights],
+  );
+
+  return (
+    <main className="relative h-screen w-screen overflow-hidden bg-base">
+      <div className="absolute inset-0">
+        <FlightMap
+          region={REGIONS[regionId]}
+          flights={flights}
+          corridors={visibleCorridors}
+          showAircraft={showAircraft}
+          showCorridors={showCorridors}
+          anomaliesOnly={anomaliesOnly}
+          anomalyByIcao={anomalyByIcao}
+          selectedIcao24={selectedIcao24}
+          onSelectFlight={selectAircraft}
+          flyToTarget={flyToTarget}
+          trajectory={trajectory}
+        />
+      </div>
+
+      {/* Top-left: KPI cards + pipeline health strip underneath.
+          z-[1000]+ is required: Leaflet's internal panes use z-index up to
+          700, and neither <main> nor the map wrapper establishes its own
+          stacking context, so without an explicit z-index here these
+          floating panels render BEHIND the map regardless of DOM order. */}
+      <div className="pointer-events-none absolute left-4 top-4 z-[1000] flex flex-col">
+        <div className="pointer-events-auto">
+          <KpiPanel />
+        </div>
+        <div className="pointer-events-auto -mt-px">
+          <PipelineHealthStrip wsStatus={wsStatus} liveFlightCount={flights.length} />
+        </div>
+      </div>
+
+      {/* Right side: layer toggles + anomaly feed, stacked in a real flex
+          column (not two independently-positioned absolute panels with a
+          guessed pixel gap) so a taller layer-toggle panel can never
+          overlap the feed below it. */}
+      <div className="pointer-events-none absolute bottom-4 right-4 top-4 z-[1000] flex flex-col gap-3">
+        <div className="pointer-events-auto flex-shrink-0">
+          <LayerControls
+            regionId={regionId}
+            onRegionChange={setRegionId}
+            showAircraft={showAircraft}
+            onToggleAircraft={() => setShowAircraft((v) => !v)}
+            showCorridors={showCorridors}
+            onToggleCorridors={() => setShowCorridors((v) => !v)}
+            anomaliesOnly={anomaliesOnly}
+            onToggleAnomaliesOnly={() => setAnomaliesOnly((v) => !v)}
+            corridorLimit={corridorLimit}
+            onCorridorLimitChange={setCorridorLimit}
+            totalCorridors={corridorsData?.total_corridors ?? 0}
+          />
+        </div>
+        <div className="pointer-events-auto min-h-0 flex-1">
+          <AnomalyFeed
+            onSelect={selectAnomaly}
+            collapsed={anomalyFeedCollapsed}
+            onToggleCollapse={() => setAnomalyFeedCollapsed((v) => !v)}
+          />
+        </div>
+      </div>
+
+      {/* Bottom: charts panel */}
+      <div className="pointer-events-auto absolute bottom-4 left-4 right-[360px] z-[1000]">
+        <ChartsPanel
+          flights={flights}
+          collapsed={chartsCollapsed}
+          onToggleCollapse={() => setChartsCollapsed((v) => !v)}
+        />
+      </div>
+    </main>
+  );
+}

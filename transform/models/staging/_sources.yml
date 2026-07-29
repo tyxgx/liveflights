@@ -1,0 +1,92 @@
+version: 2
+
+sources:
+  - name: gold
+    description: >
+      Medallion gold layer written by the Spark batch job
+      (streaming/jobs/gold_batch.py). Each table is a full-overwrite
+      recompute from the silver Delta table, mirrored into Postgres via a
+      single JDBC batch write. dbt's job is business-level modeling and
+      testing on top of these — never recomputing what Spark already did.
+    schema: gold
+    tables:
+      - name: traffic_by_hour
+        description: Hourly flight-count and averages, one row per hour bucket.
+        loaded_at_field: hour_bucket
+        freshness:
+          warn_after: { count: 6, period: hour }
+          error_after: { count: 24, period: hour }
+        columns:
+          - name: hour_bucket
+            description: Start of the hour this row aggregates, UTC.
+          - name: flight_count
+            description: Distinct aircraft (icao24) seen in this hour.
+          - name: avg_altitude_ft
+            description: Mean barometric altitude across all states in the hour, feet.
+          - name: avg_speed_kmh
+            description: Mean ground speed across all states in the hour, km/h.
+
+      - name: traffic_by_country
+        description: Flight-count and averages rolled up by ICAO24-derived origin country.
+        columns:
+          - name: origin_country
+            description: Country inferred from the aircraft's ICAO24 address block.
+          - name: flight_count
+            description: Distinct aircraft (icao24) seen for this country.
+          - name: avg_altitude_ft
+            description: Mean barometric altitude across all states for this country, feet.
+          - name: avg_speed_kmh
+            description: Mean ground speed across all states for this country, km/h.
+
+      - name: airline_activity
+        description: Flight-count and averages rolled up by airline (via callsign prefix lookup).
+        columns:
+          - name: airline
+            description: Airline name resolved from the callsign's 3-letter ICAO prefix.
+          - name: flight_count
+            description: Distinct aircraft (icao24) seen for this airline.
+          - name: avg_speed_kmh
+            description: Mean ground speed across all states for this airline, km/h.
+          - name: avg_altitude_ft
+            description: Mean barometric altitude across all states for this airline, feet.
+
+      - name: altitude_band_distribution
+        description: Flight-count and average speed bucketed into altitude bands.
+        columns:
+          - name: altitude_band
+            description: Coarse altitude bucket, e.g. "10000-20000ft".
+          - name: flight_count
+            description: Distinct aircraft (icao24) seen in this altitude band.
+          - name: avg_speed_kmh
+            description: Mean ground speed across all states in this band, km/h.
+
+      - name: anomaly_events
+        description: >
+          Row-level flagged states (placeholder scoring until the real
+          IsolationForest model lands in P5) with a non-empty
+          data_quality_flags array upstream in silver.
+        loaded_at_field: ingest_ts
+        freshness:
+          warn_after: { count: 6, period: hour }
+          error_after: { count: 24, period: hour }
+        columns:
+          - name: icao24
+            description: Unique ICAO 24-bit aircraft address.
+          - name: callsign
+            description: Flight callsign, may be null.
+          - name: origin_country
+            description: Country inferred from the aircraft's ICAO24 address block.
+          - name: ingest_ts
+            description: Timestamp the underlying state was ingested by the producer.
+          - name: latitude
+            description: Degrees, WGS-84.
+          - name: longitude
+            description: Degrees, WGS-84.
+          - name: altitude_ft
+            description: Barometric (or geometric fallback) altitude, feet.
+          - name: speed_kmh
+            description: Ground speed, km/h.
+          - name: anomaly_score
+            description: Placeholder score — fraction of possible data-quality flags present.
+          - name: anomaly_type
+            description: Comma-joined list of data-quality flags that triggered this event.

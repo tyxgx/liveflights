@@ -1,0 +1,91 @@
+version: 2
+
+models:
+  - name: stg_traffic_by_hour
+    description: Cleaned/typed view over gold.traffic_by_hour, one row per hour bucket.
+    columns:
+      - name: hour_bucket
+        description: Start of the hour this row aggregates, UTC.
+        tests: [not_null]
+      - name: traffic_date
+        description: Calendar date derived from hour_bucket, for daily rollups.
+        tests: [not_null]
+      - name: flight_count
+        description: Distinct aircraft seen in this hour.
+        tests: [not_null]
+      - name: avg_altitude_ft
+        description: Mean barometric altitude across all states in the hour, feet.
+      - name: avg_speed_kmh
+        description: Mean ground speed across all states in the hour, km/h.
+
+  - name: stg_traffic_by_country
+    description: Cleaned/typed view over gold.traffic_by_country, one row per country.
+    columns:
+      - name: origin_country
+        description: Country inferred from the aircraft's ICAO24 address block.
+        tests: [not_null, unique]
+      - name: flight_count
+        description: Distinct aircraft seen for this country.
+        tests: [not_null]
+      - name: avg_altitude_ft
+        description: Mean barometric altitude across all states for this country, feet.
+      - name: avg_speed_kmh
+        description: Mean ground speed across all states for this country, km/h.
+
+  - name: stg_airline_activity
+    description: Cleaned/typed view over gold.airline_activity, one row per airline.
+    columns:
+      - name: airline_name
+        description: Airline name resolved from the callsign's 3-letter ICAO prefix.
+        tests: [not_null, unique]
+      - name: flight_count
+        description: Distinct aircraft seen for this airline.
+        tests: [not_null]
+      - name: avg_speed_kmh
+        description: Mean ground speed across all states for this airline, km/h.
+      - name: avg_altitude_ft
+        description: Mean barometric altitude across all states for this airline, feet.
+
+  - name: stg_altitude_band_distribution
+    description: Cleaned/typed view over gold.altitude_band_distribution.
+    columns:
+      - name: altitude_band
+        description: Coarse altitude bucket.
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              values:
+                - "0-2000ft"
+                - "2000-6000ft"
+                - "6000-10000ft"
+                - "10000-20000ft"
+                - "20000-30000ft"
+                - "30000-40000ft"
+                - "40000ft+"
+                - "unknown"
+      - name: flight_count
+        description: Distinct aircraft seen in this altitude band.
+        tests: [not_null]
+      - name: avg_speed_kmh
+        description: Mean ground speed across all states in this band, km/h.
+
+  - name: stg_anomaly_events
+    description: Cleaned/typed view over gold.anomaly_events, one row per flagged state.
+    columns:
+      - name: icao24
+        description: Unique ICAO 24-bit aircraft address.
+        tests: [not_null]
+      - name: origin_country
+        description: Country inferred from the aircraft's ICAO24 address block.
+      - name: ingest_ts
+        description: Timestamp the underlying state was ingested by the producer.
+        tests: [not_null]
+      - name: anomaly_hour
+        description: ingest_ts truncated to the hour, for hourly anomaly rollups.
+        tests: [not_null]
+      - name: anomaly_score
+        description: Placeholder score — fraction of possible data-quality flags present.
+      - name: anomaly_type
+        description: Comma-joined list of data-quality flags that triggered this event.
+        tests: [not_null]

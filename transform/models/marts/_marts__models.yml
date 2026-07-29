@@ -1,0 +1,81 @@
+version: 2
+
+models:
+  - name: mart_traffic_daily
+    description: Daily flight-traffic rollup with day-over-day change, for the dashboard's traffic chart.
+    columns:
+      - name: traffic_date
+        description: Calendar date this row summarizes.
+        tests: [not_null, unique]
+      - name: total_flights
+        description: Sum of hourly flight_count across the day.
+        tests: [not_null]
+      - name: avg_altitude_ft
+        description: Mean of the hourly average altitudes for the day, feet.
+      - name: avg_speed_kmh
+        description: Mean of the hourly average speeds for the day, km/h.
+      - name: prior_day_flights
+        description: total_flights from the previous calendar day (window lag), null for the first day.
+      - name: day_over_day_change_pct
+        description: Percent change in total_flights vs the previous day (macros/pct_change.sql), null when there's no prior day.
+
+  - name: mart_region_summary
+    description: Region-level KPIs (Europe / North America / Other), joining traffic to the country dimension's region bucket.
+    columns:
+      - name: region
+        description: Coarse business-level region bucket.
+        tests: [not_null, unique]
+      - name: num_countries
+        description: Distinct origin countries observed in this region.
+        tests: [not_null]
+      - name: total_flights
+        description: Sum of flight_count across all countries in the region.
+        tests: [not_null]
+      - name: avg_altitude_ft
+        description: Mean of per-country average altitudes in the region, feet.
+      - name: avg_speed_kmh
+        description: Mean of per-country average speeds in the region, km/h.
+
+  - name: mart_airline_leaderboard
+    description: Airlines ranked by flight activity, for the dashboard's leaderboard panel.
+    columns:
+      - name: airline_key
+        description: Surrogate key from int_dim_airline.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('int_dim_airline')
+              field: airline_key
+      - name: airline_name
+        description: Airline name resolved upstream from the callsign's ICAO prefix.
+        tests: [not_null, unique]
+      - name: is_unclassified
+        description: True when airline_name is the "Unknown/Other" fallback bucket.
+      - name: flight_count
+        description: Distinct aircraft seen for this airline.
+        tests: [not_null]
+      - name: avg_speed_kmh
+        description: Mean ground speed across all states for this airline, km/h.
+      - name: avg_altitude_ft
+        description: Mean barometric altitude across all states for this airline, feet.
+      - name: activity_rank
+        description: 1-indexed rank by flight_count descending.
+        tests: [not_null, unique]
+
+  - name: mart_anomaly_summary
+    description: Anomaly counts and average score, broken out by anomaly type, region, and hour.
+    columns:
+      - name: anomaly_type
+        description: Comma-joined list of data-quality flags that triggered these events.
+        tests: [not_null]
+      - name: region
+        description: Coarse business-level region bucket ("Other" when the country doesn't map to a known region).
+        tests: [not_null]
+      - name: anomaly_hour
+        description: Hour bucket (from ingest_ts) these anomalies occurred in.
+        tests: [not_null]
+      - name: anomaly_count
+        description: Number of flagged states in this type/region/hour bucket.
+        tests: [not_null]
+      - name: avg_anomaly_score
+        description: Mean placeholder anomaly score for this bucket.

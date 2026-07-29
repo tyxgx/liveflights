@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    background-color: theme("colors.base.DEFAULT");
+    color: theme("colors.ink.DEFAULT");
+  }
+
+  ::selection {
+    background-color: rgba(34, 211, 238, 0.25);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.25);
+    border-radius: 3px;
+  }
+}
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .glass-panel {
+    background-color: rgba(15, 20, 32, 0.72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+  }
+}
+
+/* Leaflet overrides for the dark theme */
+.leaflet-container {
+  background: #0a0e16 !important;
+  font-family: inherit;
+}
+
+/* !important required: leaflet/dist/leaflet.css is imported inside the
+   dynamically-imported map chunk, so it can load AFTER this stylesheet and
+   otherwise wins on equal specificity. */
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #141a28 !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 6px !important;
+}
+
+.leaflet-popup-content {
+  margin: 10px 12px !important;
+}
+
+.leaflet-popup-close-button {
+  color: #7d8aa3 !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(10, 14, 22, 0.6) !important;
+  color: #7d8aa3 !important;
+}
+
+.leaflet-control-attribution a {
+  color: #a3adc2 !important;
+}
+
+.aircraft-icon {
+  transition:
+    transform 0.6s linear,
+    left 0.9s linear,
+    top 0.9s linear;
+}

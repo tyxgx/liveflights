@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//private/tmp/**)",
+      "Bash(curl -s \"http://localhost:3000/_next/static/css/app/layout.css\" -o /tmp/compiled.css)",
+      "Read(//tmp/**)"
+    ]
+  }
+}

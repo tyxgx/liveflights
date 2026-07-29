@@ -1,0 +1,65 @@
+# Recommended .gitignore contents for liveflights.
+# Per project rules, this repo does not create .gitignore automatically —
+# copy the block below into .gitignore yourself.
+
+# --- Secrets / env ---
+.env
+*.pem
+*.key
+~/.aws/
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+.uv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# --- Node / Next.js ---
+web/node_modules/
+web/.next/
+web/out/
+web/.env.local
+.pnpm-store/
+
+# --- Data / lake / warehouse (local dev artifacts) ---
+data/
+*.parquet
+delta-lake/
+minio-data/
+warehouse/
+spark-warehouse/
+metastore_db/
+derby.log
+
+# --- dbt ---
+transform/target/
+transform/dbt_packages/
+transform/logs/
+
+# --- Airflow ---
+orchestration/logs/
+orchestration/airflow.db
+orchestration/airflow-webserver.pid
+
+# --- MLflow ---
+mlruns/
+mlartifacts/
+
+# --- Terraform ---
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.backup
+infra/terraform/.terraform.lock.hcl
+
+# --- Docker / OS ---
+.DS_Store
+*.log
+
+# --- IDE ---
+.vscode/
+.idea/

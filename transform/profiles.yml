@@ -1,0 +1,18 @@
+# Kept inside the repo (not ~/.dbt/profiles.yml) so the project is
+# self-contained; point dbt at it with --profiles-dir . (or DBT_PROFILES_DIR).
+# All connection details come from environment variables — the same ones
+# every other service reads from .env — never hardcoded here.
+liveflights:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      # NOTE: host port is 5433, not 5432 — see .env.example for why
+      # (a pre-existing native Postgres on this machine occupies 5432).
+      port: "{{ env_var('POSTGRES_PORT', '5433') | as_number }}"
+      user: "{{ env_var('POSTGRES_USER') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'liveflights') }}"
+      schema: analytics
+      threads: 4

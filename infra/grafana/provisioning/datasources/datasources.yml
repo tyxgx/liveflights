@@ -1,0 +1,22 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+
+  - name: Postgres
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    database: liveflights
+    user: liveflights
+    secureJsonData:
+      password: liveflights
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1600
+    editable: true
