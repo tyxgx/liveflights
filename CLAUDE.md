@@ -12,10 +12,7 @@ required (simulator mode).
 
 ## Ground rules
 
-- **Never run git commands** (`add`, `commit`, `push`, `init`, or anything
-  that touches `.git/`). The user handles version control. At the end of each
-  phase, print a "READY TO COMMIT" block: files changed + a suggested
-  conventional-commit message.
+
 - **Never create `.gitignore` directly.** Recommended contents live in
   `docs/gitignore-recommended.txt`.
 - Config comes from `.env` via `pydantic-settings` — no hardcoded secrets or
