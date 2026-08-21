@@ -2,11 +2,13 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useMemo, useState } from "react";
-import { api } from "@/lib/api";
+import { api, WS_URL } from "@/lib/api";
 import { usePolledData } from "@/hooks/usePolledData";
 import { useFlightsWebSocket } from "@/hooks/useFlightsWebSocket";
+import { useFlightsPolling } from "@/hooks/useFlightsPolling";
 import { KpiPanel } from "@/components/panels/KpiPanel";
 import { PipelineHealthStrip } from "@/components/panels/PipelineHealthStrip";
+import { CloudStatusStrip } from "@/components/panels/CloudStatusStrip";
 import { AnomalyFeed } from "@/components/panels/AnomalyFeed";
 import { ChartsPanel } from "@/components/panels/ChartsPanel";
 import { LayerControls } from "@/components/panels/LayerControls";
@@ -21,8 +23,16 @@ const FlightMap = dynamic(() => import("@/components/map/FlightMap"), {
   loading: () => <Skeleton className="h-full w-full rounded-none" />,
 });
 
+// Static per build (NEXT_PUBLIC_* env vars are inlined at build time, not
+// runtime) — safe to branch which live-data hook is "enabled" on this
+// without violating the rules of hooks, since it never changes between
+// renders of a given deployed build.
+const CLOUD_MODE = !WS_URL;
+
 export default function DashboardPage() {
-  const { flights, status: wsStatus } = useFlightsWebSocket();
+  const ws = useFlightsWebSocket(!CLOUD_MODE);
+  const polling = useFlightsPolling(CLOUD_MODE);
+  const { flights, status: wsStatus, lastMessageAt } = CLOUD_MODE ? polling : ws;
   const { data: corridorsData } = usePolledData(() => api.corridors(200), 120000);
   const { data: anomaliesData } = usePolledData(() => api.anomalies(1, 100), 15000);
 
@@ -110,7 +120,11 @@ export default function DashboardPage() {
           <KpiPanel />
         </div>
         <div className="pointer-events-auto -mt-px">
-          <PipelineHealthStrip wsStatus={wsStatus} liveFlightCount={flights.length} />
+          {CLOUD_MODE ? (
+            <CloudStatusStrip pollStatus={wsStatus} flights={flights} lastUpdatedAt={lastMessageAt} />
+          ) : (
+            <PipelineHealthStrip wsStatus={wsStatus} liveFlightCount={flights.length} />
+          )}
         </div>
       </div>
 

@@ -20,7 +20,7 @@ interface WsMessage {
  * drop (server restarts, laptop sleep, network blips) and must recover
  * without user intervention.
  */
-export function useFlightsWebSocket() {
+export function useFlightsWebSocket(enabled: boolean = true) {
   const [flights, setFlights] = useState<LiveFlight[]>([]);
   const [status, setStatus] = useState<WsStatus>("connecting");
   const [lastMessageAt, setLastMessageAt] = useState<number | null>(null);
@@ -30,6 +30,9 @@ export function useFlightsWebSocket() {
   const unmountedRef = useRef(false);
 
   useEffect(() => {
+    // Cloud deployments have no WebSocket endpoint (see useFlightsPolling) —
+    // skip connecting entirely rather than looping on failed connections.
+    if (!enabled) return;
     unmountedRef.current = false;
 
     function connect() {
@@ -75,7 +78,7 @@ export function useFlightsWebSocket() {
       socketRef.current?.close();
       setStatus("closed");
     };
-  }, []);
+  }, [enabled]);
 
   return { flights, status, lastMessageAt };
 }
