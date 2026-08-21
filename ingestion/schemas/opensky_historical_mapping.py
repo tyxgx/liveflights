@@ -78,10 +78,16 @@ def map_historical_row_to_flight_state_dict(row: dict[str, Any]) -> dict:
     last_contact = int(row["lastcontact"])
     raw_time_position = row.get("lastposupdate")
     time_position = (
-        int(raw_time_position) if raw_time_position is not None and not _is_nan(raw_time_position) else None
+        int(raw_time_position)
+        if raw_time_position is not None and not _is_nan(raw_time_position)
+        else None
     )
     raw_callsign = row.get("callsign")
-    callsign = None if raw_callsign is None or _is_nan(raw_callsign) else str(raw_callsign).strip() or None
+    callsign = (
+        None
+        if raw_callsign is None or _is_nan(raw_callsign)
+        else str(raw_callsign).strip() or None
+    )
 
     return {
         "source": "opensky_historical",

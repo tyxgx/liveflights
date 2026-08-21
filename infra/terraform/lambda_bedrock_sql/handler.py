@@ -31,17 +31,25 @@ ATHENA_DATABASE = os.environ["ATHENA_DATABASE"]
 ATHENA_WORKGROUP = os.environ["ATHENA_WORKGROUP"]
 BEDROCK_MODEL_ID = os.environ["BEDROCK_MODEL_ID"]
 
-ALLOWED_TABLES = {"traffic_by_hour", "traffic_by_country", "airline_activity", "altitude_band_distribution", "silver"}
+ALLOWED_TABLES = {
+    "traffic_by_hour",
+    "traffic_by_country",
+    "airline_activity",
+    "altitude_band_distribution",
+    "silver",
+}
 MAX_ROWS = 100
 
 SCHEMA_DESCRIPTION = """
 Tables in the Athena/Glue database, all Parquet, all read-only:
-- traffic_by_hour(hour_bucket timestamp, flight_count bigint, avg_altitude_ft double, avg_speed_kmh double)
+- traffic_by_hour(hour_bucket timestamp, flight_count bigint, avg_altitude_ft double,
+  avg_speed_kmh double)
 - traffic_by_country(origin_country string, flight_count bigint)
 - airline_activity(airline string, flight_count bigint)
 - altitude_band_distribution(altitude_band string, flight_count bigint)
-- silver(icao24 string, callsign string, origin_country string, region string, flight_phase string,
-         speed_kmh double, altitude_ft double, ingest_ts timestamp, ingest_date string, ingest_hour string)
+- silver(icao24 string, callsign string, origin_country string, region string,
+  flight_phase string, speed_kmh double, altitude_ft double, ingest_ts timestamp,
+  ingest_date string, ingest_hour string)
 """
 
 SQL_STATEMENT_RE = re.compile(r"^\s*SELECT\b", re.IGNORECASE)
@@ -51,9 +59,10 @@ TABLE_REF_RE = re.compile(r"\b(?:FROM|JOIN)\s+\"?(?:\w+\.)?\"?(\w+)\"?", re.IGNO
 def generate_sql(question: str) -> str:
     prompt = (
         f"{SCHEMA_DESCRIPTION}\n\n"
-        f"Write a single read-only Athena/Presto SQL SELECT statement that answers this question: "
-        f"{question}\n\n"
-        "Rules: SELECT only, no DDL/DML, no semicolons, always include a LIMIT clause of 100 or fewer. "
+        f"Write a single read-only Athena/Presto SQL SELECT statement that answers "
+        f"this question: {question}\n\n"
+        "Rules: SELECT only, no DDL/DML, no semicolons, always include a LIMIT "
+        "clause of 100 or fewer. "
         "Respond with ONLY the SQL, no markdown fences, no explanation."
     )
     body = json.dumps({
@@ -94,7 +103,8 @@ def run_query(sql: str) -> list[dict]:
     )["QueryExecutionId"]
 
     for _ in range(20):
-        state = athena.get_query_execution(QueryExecutionId=exec_id)["QueryExecution"]["Status"]["State"]
+        execution = athena.get_query_execution(QueryExecutionId=exec_id)
+        state = execution["QueryExecution"]["Status"]["State"]
         if state in ("SUCCEEDED", "FAILED", "CANCELLED"):
             break
         time.sleep(0.5)
