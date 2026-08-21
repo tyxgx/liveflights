@@ -63,3 +63,7 @@ infra/terraform/.terraform.lock.hcl
 # --- IDE ---
 .vscode/
 .idea/
+
+# Terraform plan files — build artifacts, can contain unredacted sensitive vars
+infra/terraform/*.tfplan
+infra/terraform/tfplan.out

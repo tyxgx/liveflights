@@ -1,6 +1,15 @@
 # liveflights
 
-Real-time flight intelligence platform: OpenSky/simulated flight data streamed through Redpanda and Spark into a Delta lakehouse, modeled in dbt, scored by four ML models, and served live to a Next.js dashboard. Fully local, zero cloud credentials required.
+Real-time flight intelligence platform: OpenSky/simulated flight data streamed through Redpanda and Spark into a Delta lakehouse, modeled in dbt, scored by four ML models, and served live to a Next.js dashboard. Fully local, zero cloud credentials required — plus a live serverless AWS deployment of the same medallion pipeline.
+
+**Live cloud deployment:**
+
+| | URL |
+|---|---|
+| Dashboard | https://liveflights-prod-site-922120357133.s3.us-east-1.amazonaws.com/index.html |
+| API | https://m9o2yg64dj.execute-api.us-east-1.amazonaws.com |
+
+See [Cloud deployment (AWS)](#cloud-deployment-aws) below for the architecture, the account-restriction story, and why this deployment runs on simulated rather than real OpenSky data.
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Spark](https://img.shields.io/badge/Spark-3.5.3-E25A1C?logo=apachespark&logoColor=white)
@@ -47,6 +56,99 @@ flowchart LR
 ```
 
 Airflow orchestration (`hourly_compaction`, `daily_dbt`, `daily_ml_retrain`, `daily_quality_drift`) is planned but not yet implemented — see [Roadmap](#roadmap). Every stage above currently runs as a manually-invoked local process; MLflow tracking/registry and the medallion pipeline are fully built and verified.
+
+## Cloud deployment (AWS)
+
+A second, serverless deployment of the same medallion architecture, provisioned entirely via Terraform (`infra/terraform/`), running live in `us-east-1` under a $5/month budget. Same bronze/silver/gold shape and data contract as local — different execution substrate (scheduled Lambda micro-batches instead of continuous Spark streaming) for a different constraint (near-zero cost, ops-light, no always-on compute).
+
+```mermaid
+flowchart LR
+    subgraph Ingestion
+        EB[EventBridge Scheduler\n1 min] --> L1[Lambda: ingest\nadsb.lol live, simulator fallback]
+        L1 -->|DLQ on failure| SQS[SQS DLQ]
+        L1 --> FH[Kinesis Firehose]
+        L1 --> DDB[(DynamoDB\nlatest state, TTL)]
+    end
+
+    subgraph Storage
+        FH --> S3B[(S3: bronze/)]
+    end
+
+    subgraph "Batch processing"
+        SFN[Step Functions] --> LT[Lambda: transform\npandas/pyarrow]
+        LT --> S3S[(S3: silver/)]
+        LT --> S3G[(S3: gold/)]
+        LT -.registers partitions via glue:CreatePartition.-> CAT[Glue Data Catalog\nexplicit tables, no Crawler]
+        CAT --> ATH[Athena workgroup]
+        SFN -->|glue:GetTables| CAT
+    end
+
+    subgraph Serving
+        APIGW[API Gateway HTTP API] --> L2[Lambda: FastAPI/Mangum]
+        L2 --> ATH
+        L2 --> DDB
+        APIGW --> L3[Lambda: Bedrock text-to-SQL]
+        L3 --> BR[Bedrock]
+        L3 --> ATH
+        WEB[S3 REST endpoint over HTTPS\nno CDN] --> S3F[(S3: Next.js static export)]
+    end
+
+    S3B -.triggers on schedule.-> SFN
+
+    subgraph Observability
+        CW[CloudWatch Alarms] --> SNS[SNS Topic]
+    end
+```
+
+### OpenSky doesn't reach AWS — but adsb.lol does, and that's what's live now
+
+The ingest Lambda cannot reach OpenSky's API. Diagnosis, cheapest explanation first: `Errno 110 ETIMEDOUT` (a TCP SYN that's never answered) rules out DNS, auth (401), an explicit block (403), and rate limiting (429) — all of those need a connection to exist first. A one-shot diagnostic invocation confirmed general internet egress works fine (a plain HTTPS GET to `checkip.amazonaws.com` succeeded immediately), then tried OpenSky's token host and states host separately — **both timed out identically**, every time. Conclusion: OpenSky blocks or heavily throttles traffic from AWS's IP ranges; not fixable from this side.
+
+Rather than settle for the simulator, `ingestion/sources/` adds a small pluggable adapter registry (`opensky`, `adsb_lol`, `simulate` — one `fetch_states()` implementation each) and tests community ADS-B aggregators from the Lambda directly. **adsb.lol works from AWS**; `airplanes.live` and `opendata.adsb.fi` both return `403` from the same egress IP, same symptom class as OpenSky. **The deployed ingest Lambda now fetches real live aircraft from adsb.lol every minute**, labeled `source="adsb_lol"`, falling back to the simulator (`source="simulate_cloud"`) only if that live fetch ever fails — the pipeline never goes dark, and it's never ambiguous which path produced a given row. Full diagnostic transcript and the field-mapping contract (including the `origin_country` approximation this API requires) are in `docs/aws-architecture.md`.
+
+### Account-level restrictions and the three substitutions
+
+Deploying to a real (new) AWS account surfaced restrictions invisible from the Terraform config alone: `glue:CreateJob`, `glue:CreateCrawler`, and `cloudfront:CreateDistribution` all return `AccessDenied` — even though this account's IAM user has `AdministratorAccess`, and `aws iam simulate-principal-policy` confirms IAM itself allows all three actions. Read operations on the same services (`glue:GetJobs`, `glue:GetDatabases`, `cloudfront:ListDistributions`) succeed cleanly, and a direct probe of `glue:CreateTable` (Catalog metadata, not a Job/Crawler) also succeeded. Conclusion: an account-level restriction on provisioning *compute* (a Glue Job/Crawler run, a CloudFront distribution) — consistent with a new-account anti-fraud/service-quota gate — not an IAM or Terraform bug.
+
+Three substitutions, each a real engineering trade-off rather than a workaround-and-hope:
+
+| Blocked | Substituted with | Reasoning |
+|---|---|---|
+| Glue Job (Python Shell) | A 1024 MB Lambda running the identical pandas/pyarrow bronze→silver→gold transform (`infra/terraform/lambda_transform/handler.py`) | At this data volume (a few thousand rows per 5-minute poll), a Lambda genuinely right-sizes the job better than a Glue Job would have — this was never big enough to need Glue/Spark in the first place. |
+| Glue Crawler | Explicit `aws_glue_catalog_table` resources (silver + 4 gold tables, `run_ts` partition key each), with the transform Lambda calling `glue:CreatePartition` directly after every write | The Lambda already knows the exact schema it just wrote — registering that directly is more precise than a Crawler re-inferring it from S3 after the fact, and avoids schema drift across runs (each write casts every column to a fixed dtype first, so every partition matches the Catalog definition exactly). |
+| CloudFront distribution | S3 static website hosting on the site bucket | A real, stated trade-off: no edge caching, no HTTPS on the bucket endpoint, no CDN-level rewrite of a 404 to a clean 200 for client-side routes. What's preserved: the same static export, at a public URL, for $0 marginal cost. The bucket policy grants `s3:GetObject` on objects only — no `s3:ListBucket` — so contents can be fetched by path but not enumerated. |
+
+Full diagnosis, IAM simulation output, and the Docker image-manifest fix that was also needed along the way (`--provenance=false --sbom=false --output type=docker` — Lambda rejects the OCI image *index* Docker Desktop pushes by default) are in `docs/aws-architecture.md`.
+
+### AWS services
+
+| Service | Role here | Why chosen | Est. cost |
+|---|---|---|---|
+| EventBridge Scheduler | Fires ingestion Lambda every 1 min, and a daily corridor-retrain schedule | No per-schedule charge | $0 |
+| Lambda (ingest) | Fetches live adsb.lol states (simulator fallback, see above), batches into Firehose, upserts DynamoDB | Pay-per-invocation; ~43,200 invocations/mo still deep in the 1M/mo free tier | ~$0 |
+| SQS (DLQ) | Catches failed ingestion invocations | Free tier covers this easily | $0 |
+| Kinesis Firehose | Buffers ingestion output to S3 as gzip NDJSON | $0.029/GB, well under 1 GB/mo at this volume | ~$0.05 |
+| S3 (lake bucket) | bronze/silver/gold, 30-day lifecycle expiry, fully private | Standard storage, capped by lifecycle expiry | ~$0.10 |
+| DynamoDB (on-demand) | Latest per-aircraft state, TTL self-eviction | $0 when idle between polls | ~$0.05 |
+| Lambda (transform, container image) | bronze→silver→gold, replaces the blocked Glue Job | Pay-per-invocation, a few cents/mo at this volume | ~$0.15 |
+| Glue Data Catalog | Table + partition metadata for Athena, no Crawler | First 1M objects/requests free | $0 |
+| Athena | Serves gold Parquet to the API and ad-hoc queries | $5/TB scanned; workgroup enforces a 1 GB scan cutoff | ~$0.05 |
+| Step Functions | Orchestrates transform Lambda → table validation | $0.025/1,000 transitions | ~$0.01 |
+| Lambda (API, container image) | FastAPI/Mangum, serves the cloud API surface | Free-tier compute covers demo traffic | ~$0 |
+| ECR (×2 repos) | API and transform Lambda images | 500 MB/mo free tier, `keep last 3` lifecycle policy | $0 |
+| API Gateway (HTTP API) | Routes to API and Bedrock-SQL Lambdas | ~70% cheaper per request than REST API | ~$0 |
+| S3 static website hosting | Serves the dashboard, replaces the blocked CloudFront distribution | No separate charge beyond bucket storage | $0 |
+| Bedrock (Claude Haiku) | Text-to-SQL generation | Pay-per-token, cheapest Claude tier | ~$0.02 |
+| CloudWatch Logs/Alarms/Dashboard | 7-day log retention, 5 alarms, 1 dashboard | Rides the first-dashboard-free tier | ~$0.50 |
+| SNS | Alarm notification | First 1,000/mo free | $0 |
+| X-Ray | Tracing on both Lambdas | First 100,000 traces/mo free | $0 |
+| **Total** | | | **~$2.60–3.85/mo projected steady-state** |
+
+Full cost breakdown, what was deliberately *not* used (MSK, MWAA, EMR, RDS, NAT Gateway — all with an always-on minimum that alone would blow the budget), and security notes (least-privilege IAM, no VPC-attached Lambdas, OIDC-based CI auth) are in `docs/aws-architecture.md`.
+
+### ML scoring runs in the cloud too
+
+`GET /api/corridors` and `GET /api/anomalies` are live on the cloud API, matching the local API's response shapes exactly. DBSCAN has no `.predict()` for new points, so the artifact that travels to the cloud is the **discovered corridor reference table** (271 real corridors, exported from local Postgres — not a pickled model) at `s3://<lake-bucket>/models/corridors_v1.json`; the transform Lambda scores new cruise-phase points against it (nearest-centroid distance, heading deviation, altitude z-score) and writes `gold.anomaly_events` every run. A daily schedule re-fits DBSCAN on the cloud's own accumulated data, but won't overwrite the real 271-corridor set until that data reaches a real-volume bar (5,000 cruise rows) — otherwise the dashboard's corridors would get *worse* on day one, not better. Full design and the (not-yet-recalibrated) ~33% flagged rate are in `docs/aws-architecture.md`.
 
 ## Quickstart
 
@@ -217,6 +319,17 @@ Beats both naive baselines on every metric (test n=29 hours) — but the result 
 | API p95 latency — `/api/corridors?limit=50` | 10.3 ms |
 | API p95 latency — `/api/flights/live?limit=500` | 1.9 ms |
 
+**Cloud (AWS) pipeline** — a separate, much smaller live system; not comparable to the local numbers above (different data volume, different network path):
+
+| Metric | Value |
+|---|---|
+| Step Functions execution runtime (bronze→silver→gold, incl. table validation) | ~15s |
+| Rows processed per transform run | 800 bronze → 800 silver rows, 4 gold tables (1–6 rows each) |
+| Ingest Lambda invocation result | 40 simulated states/invocation, every 5 min |
+| DLQ messages | 0 |
+| API Gateway `/health` round trip (Mumbai → us-east-1, cross-region, cold Lambda not excluded) | ~630–660ms median over 10 samples |
+| Athena query (`SELECT * FROM gold.traffic_by_country`) | returns rows in ~2–3s |
+
 ## Limitations
 
 - **The dataset is simulator-dominant.** Of 29,785 silver rows, 28,551 are simulated and only 1,234 are real OpenSky captures — kept deliberately as the project's only authentic data and its region-agnostic proof point, not because they're statistically sufficient on their own.
@@ -238,7 +351,7 @@ A few bugs worth calling out because they reflect actual debugging depth, not ju
 
 ## Tech stack
 
-Python 3.12 · uv · PySpark 3.5.3 · Delta Lake 3.2.1 · Redpanda (Kafka API) · MinIO (S3-compatible) · PostgreSQL 16 · dbt-core 1.8.9 · Airflow (planned) · scikit-learn · MLflow · FastAPI · Pydantic v2 · SQLAlchemy · Redis · Prometheus · Grafana · Next.js 14 (App Router) · TypeScript · React 18 · Tailwind CSS 3 · react-leaflet / Leaflet · Recharts · pnpm · Docker Compose · Terraform (planned)
+Python 3.12 · uv · PySpark 3.5.3 · Delta Lake 3.2.1 · Redpanda (Kafka API) · MinIO (S3-compatible) · PostgreSQL 16 · dbt-core 1.8.9 · Airflow (planned) · scikit-learn · MLflow · FastAPI · Pydantic v2 · SQLAlchemy · Redis · Prometheus · Grafana · Next.js 14 (App Router) · TypeScript · React 18 · Tailwind CSS 3 · react-leaflet / Leaflet · Recharts · pnpm · Docker Compose · Terraform · AWS (Lambda, Step Functions, Glue Catalog, Athena, DynamoDB, Firehose, API Gateway, Bedrock, S3)
 
 ## Project structure
 
@@ -247,11 +360,11 @@ liveflights/
 ├── ingestion/       producer, OpenSky client, simulator, schemas, DLQ, tests
 ├── streaming/       Spark bronze/silver/gold jobs, Delta utils, enrichment
 ├── transform/       dbt project (staging -> intermediate -> marts)
-├── orchestration/   Airflow DAGs + plugins (planned, P8)
+├── orchestration/   Airflow DAGs + plugins (planned, not started — P8)
 ├── ml/              corridors, trajectory, anomaly, forecast, registry
 ├── api/             FastAPI app: routers, services, models, deps
 ├── web/             Next.js 14 App Router dashboard
-├── infra/           terraform/, grafana/, prometheus/ (partially planned)
+├── infra/           terraform/ (deployed to AWS), grafana/, prometheus/
 ├── tests/           cross-cutting pytest — schema contract, region bucketing
 ├── docs/            architecture notes, screenshots, gitignore recommendation
 ├── docker-compose.yml
@@ -262,5 +375,7 @@ liveflights/
 
 ## Roadmap
 
-- **Airflow orchestration** (`hourly_compaction`, `daily_dbt`, `daily_ml_retrain`, `daily_quality_drift` DAGs) — planned, not yet implemented. Every stage currently runs as a manually-invoked process.
-- **Serverless AWS deployment** — a Terraform-provisioned S3 bucket + Lambda archive job for the drift/quality DAG's gold-snapshot sync, behind a `STORAGE_BACKEND=s3` flag that already exists alongside the default local MinIO backend — planned, not yet implemented.
+- **Airflow orchestration** (`hourly_compaction`, `daily_dbt`, `daily_ml_retrain`, `daily_quality_drift` DAGs) — **planned, not started**. `orchestration/dags/` and `orchestration/plugins/` are empty directories; there is no Airflow service in `docker-compose.yml`. Every stage currently runs as a manually-invoked process.
+- **Serverless AWS deployment** — **done**, see [Cloud deployment (AWS)](#cloud-deployment-aws) above. Built out of phase order relative to the original P8→P9 plan (Airflow was skipped in favor of standing up the cloud path first).
+- **Real OpenSky data in the cloud pipeline** — blocked, not scoped work: OpenSky blocks/throttles traffic from AWS IP ranges (see above), not something retries or IAM changes can fix from this side. A future path would need a non-AWS egress point (e.g. a small proxy on a non-cloud IP) in front of the ingest Lambda.
+- **CDN in front of the cloud dashboard** — `cloudfront:CreateDistribution` is currently blocked at the account level (see above); revisit once/if that restriction lifts.
