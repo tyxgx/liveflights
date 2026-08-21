@@ -37,6 +37,20 @@ function popupHtml(f: LiveFlight, anomaly?: AnomalyEvent): string {
     ["Corridor", anomaly?.nearest_corridor_id != null ? `#${anomaly.nearest_corridor_id}` : "—"],
     ["Anomaly score", anomaly ? anomaly.anomaly_score.toFixed(2) : "—"],
   ];
+  // Departure is a confirmed match (a real ground->airborne transition);
+  // predicted destination/ETA are always a heading-based estimate, never a
+  // fact — labeled "(est.)" here rather than presented the same way as the
+  // confirmed departure row above. Only shown when known — most aircraft
+  // won't have this (only ones seen departing since tracking started do).
+  if (f.departure_iata) {
+    rows.push(["Departed", f.departure_iata]);
+  }
+  if (f.predicted_arrival_iata) {
+    rows.push(["Predicted dest. (est.)", f.predicted_arrival_iata]);
+  }
+  if (f.eta_minutes != null) {
+    rows.push(["ETA (est.)", `${Math.round(f.eta_minutes)} min`]);
+  }
   return `
     <div style="font-family: var(--font-jetbrains, monospace); font-size: 11px; min-width: 170px;">
       <div style="font-weight:600; font-size:12px; margin-bottom:6px; color:#e2e8f0;">${f.icao24}</div>

@@ -14,6 +14,18 @@ export interface LiveFlight {
   on_ground: boolean;
   time_position: number | null;
   source: string | null;
+  // Departure is a fact once matched (a ground->airborne transition against
+  // a known airport); predicted_arrival/eta are always an estimate — ADS-B
+  // carries no flight-plan data, see docs/architecture.md. All optional:
+  // most aircraft won't have a departure match (only ones seen taking off
+  // since this deployment started tracking do), and prediction needs a
+  // known heading + departure to run at all.
+  departure_iata?: string;
+  departure_country?: string;
+  departure_time?: number;
+  predicted_arrival_iata?: string;
+  predicted_arrival_country?: string;
+  eta_minutes?: number;
 }
 
 export interface LiveFlightsResponse {

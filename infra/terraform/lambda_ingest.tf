@@ -85,6 +85,14 @@ resource "aws_lambda_function" "ingest" {
       ADSB_LOL_MAX_WORKERS     = tostring(var.adsb_lol_max_workers)
       ADSB_LOL_STAGGER_SECONDS = tostring(var.adsb_lol_stagger_seconds)
       ADSB_LOL_RETRY_ATTEMPTS  = tostring(var.adsb_lol_retry_attempts)
+      # Departure/arrival detection (ground<->airborne transitions) + a
+      # heading-based predicted-destination/ETA estimate — see
+      # docs/architecture.md for why this can only ever be an estimate
+      # while airborne (ADS-B carries no flight plan, only the current
+      # state vector).
+      TRAJECTORIES_TABLE_NAME  = aws_dynamodb_table.trajectories.name
+      FLIGHT_ROUTES_TABLE_NAME = aws_dynamodb_table.flight_routes.name
+      AIRPORT_MATCH_RADIUS_KM  = "50"
     }
   }
 

@@ -138,3 +138,55 @@ resource "aws_dynamodb_table" "latest_state" {
     enabled        = true
   }
 }
+
+# --- DynamoDB: per-aircraft trajectory (every position sample while airborne) ---
+#
+# Real route info (departure/arrival airport) isn't in ADS-B at all — the
+# transponder broadcasts only the current state vector, never a flight
+# plan. This table is what makes departure/arrival detection possible from
+# our own data: one item per (icao24, timestamp) sample from takeoff to
+# landing. TTL of 48h is generous headroom over any real flight duration
+# this deployment's regions would see, so completed/abandoned trajectories
+# clean themselves up without a separate job.
+resource "aws_dynamodb_table" "trajectories" {
+  name         = "${local.name_prefix}-trajectories"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "icao24"
+  range_key    = "timestamp"
+
+  attribute {
+    name = "icao24"
+    type = "S"
+  }
+  attribute {
+    name = "timestamp"
+    type = "N"
+  }
+
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+}
+
+# --- DynamoDB: finalized departure->arrival routes (the ground-truth this
+#     project didn't have before — a real alternative to the DBSCAN-
+#     discovered "corridors", once enough of these accumulate) ---
+resource "aws_dynamodb_table" "flight_routes" {
+  name         = "${local.name_prefix}-flight-routes"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "icao24"
+  range_key    = "arrival_time"
+
+  attribute {
+    name = "icao24"
+    type = "S"
+  }
+  attribute {
+    name = "arrival_time"
+    type = "N"
+  }
+
+  # No TTL — this is meant to accumulate as a training/analysis dataset,
+  # not self-evict like the live-state tables above.
+}

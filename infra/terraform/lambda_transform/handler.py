@@ -484,30 +484,58 @@ def retrain_corridors(region: str = "india") -> dict:
 
     cruise["track_sin"] = np.sin(np.radians(cruise["true_track"]))
     cruise["track_cos"] = np.cos(np.radians(cruise["true_track"]))
-    features = cruise[["latitude", "longitude", "track_sin", "track_cos"]].to_numpy()
 
-    scaler = StandardScaler()
-    scaled = scaler.fit_transform(features)
-    eps = _choose_eps_via_knee(scaled, k=MIN_SAMPLES)
-    labels = DBSCAN(eps=eps, min_samples=MIN_SAMPLES).fit(scaled).labels_
-    cruise["cluster"] = labels
+    # Fit per geographic cell, not one global fit across all of "region" —
+    # the cloud pipeline now covers Europe via 8 widely-separated adsb.lol
+    # hub points (British Isles to the Balkans, ~4,000+ km apart; see
+    # docs/aws-architecture.md), and a single StandardScaler+DBSCAN fit
+    # across that whole spread repeats the exact failure this project
+    # already documented for combining Europe+India (silhouette
+    # 0.607->0.113, see docs/ml.md) — confirmed live here too: one global
+    # fit put 90.2% of all points in one "corridor" and 8.5% in a second,
+    # a k-distance eps chosen across thousands of km of inter-hub gaps
+    # swallowing every real, local corridor. 10-degree cells roughly match
+    # the hub spacing without being so fine that a cell no longer has
+    # enough points for a stable fit.
+    CELL_SIZE_DEG = 10.0
+    cruise["cell"] = (
+        (cruise["latitude"] // CELL_SIZE_DEG).astype(int).astype(str)
+        + "_"
+        + (cruise["longitude"] // CELL_SIZE_DEG).astype(int).astype(str)
+    )
 
     corridors = []
-    for cluster_id in sorted(set(labels) - {-1}):
-        sub = cruise[cruise["cluster"] == cluster_id]
-        corridors.append({
-            "corridor_id": int(cluster_id),
-            "region": region,
-            "centroid_lat": round(float(sub["latitude"].mean()), 5),
-            "centroid_lon": round(float(sub["longitude"].mean()), 5),
-            "modal_heading_deg": round(_modal_heading(sub["track_sin"], sub["track_cos"]), 1),
-            "altitude_mean_ft": round(float(sub["altitude_ft"].mean()), 1),
-            "altitude_std_ft": max(round(float(sub["altitude_ft"].std() or 1.0), 1), 1.0),
-            "member_count": int(len(sub)),
-            "polyline": _build_polyline(sub),
-        })
+    noise_count = 0
+    next_corridor_id = 0
+    for cell, cell_df in cruise.groupby("cell"):
+        if len(cell_df) < MIN_ROWS_FOR_FIT:
+            noise_count += len(cell_df)  # too few points in this cell for a stable fit
+            continue
 
-    noise_pct = float((labels == -1).mean() * 100)
+        features = cell_df[["latitude", "longitude", "track_sin", "track_cos"]].to_numpy()
+        scaler = StandardScaler()
+        scaled = scaler.fit_transform(features)
+        eps = _choose_eps_via_knee(scaled, k=MIN_SAMPLES)
+        labels = DBSCAN(eps=eps, min_samples=MIN_SAMPLES).fit(scaled).labels_
+        cell_df = cell_df.assign(cluster=labels)
+
+        noise_count += int((labels == -1).sum())
+        for cluster_id in sorted(set(labels) - {-1}):
+            sub = cell_df[cell_df["cluster"] == cluster_id]
+            corridors.append({
+                "corridor_id": next_corridor_id,
+                "region": region,
+                "centroid_lat": round(float(sub["latitude"].mean()), 5),
+                "centroid_lon": round(float(sub["longitude"].mean()), 5),
+                "modal_heading_deg": round(_modal_heading(sub["track_sin"], sub["track_cos"]), 1),
+                "altitude_mean_ft": round(float(sub["altitude_ft"].mean()), 1),
+                "altitude_std_ft": max(round(float(sub["altitude_ft"].std() or 1.0), 1), 1.0),
+                "member_count": int(len(sub)),
+                "polyline": _build_polyline(sub),
+            })
+            next_corridor_id += 1
+
+    noise_pct = float(noise_count / len(cruise) * 100) if len(cruise) else 0.0
     if not corridors:
         report["reason"] = "DBSCAN found zero clusters (all noise) — keeping existing artifact"
         return report

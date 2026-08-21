@@ -34,9 +34,22 @@ data "aws_iam_policy_document" "lambda_ingest_policy" {
     resources = [aws_kinesis_firehose_delivery_stream.lake.arn]
   }
   statement {
-    sid       = "DynamoDbWrite"
-    actions   = ["dynamodb:BatchWriteItem", "dynamodb:PutItem"]
+    # GetItem/BatchGetItem added for departure/arrival detection — reading
+    # each aircraft's PREVIOUS state (before overwriting it) is how a
+    # ground->climb or descent->ground transition gets noticed at all.
+    sid       = "DynamoDbLatestState"
+    actions   = ["dynamodb:BatchWriteItem", "dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:BatchGetItem"]
     resources = [aws_dynamodb_table.latest_state.arn]
+  }
+  statement {
+    sid       = "DynamoDbTrajectories"
+    actions   = ["dynamodb:PutItem", "dynamodb:BatchWriteItem"]
+    resources = [aws_dynamodb_table.trajectories.arn]
+  }
+  statement {
+    sid       = "DynamoDbFlightRoutes"
+    actions   = ["dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.flight_routes.arn]
   }
   statement {
     sid       = "SsmRead"
