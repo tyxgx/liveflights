@@ -84,9 +84,9 @@ variable "adsb_lol_retry_attempts" {
 }
 
 variable "batch_chain_schedule_expression" {
-  description = "EventBridge Scheduler rate that starts the bronze->silver->gold Step Functions execution. Originally undeployed entirely (no schedule ever triggered it outside manual/one-off runs) until this was added; 10 minutes balances fresh gold data against the transform Lambda's per-run cost at Europe's much higher (~8x vs. India) data volume."
+  description = "EventBridge Scheduler rate that starts the bronze->silver->gold Step Functions execution. Originally undeployed entirely (no schedule ever triggered it outside manual/one-off runs) until this was added at 10 minutes; bumped to 15 after a real run at Europe's data volume measured ~12.5 minutes end to end (with the transform Lambda's 900s timeout/2048MB memory bump) — 10 minutes was causing back-to-back executions to overlap."
   type        = string
-  default     = "rate(10 minutes)"
+  default     = "rate(15 minutes)"
 }
 
 variable "opensky_client_id" {

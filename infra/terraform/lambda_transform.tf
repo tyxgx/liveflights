@@ -62,8 +62,13 @@ resource "aws_lambda_function" "transform" {
   role          = aws_iam_role.lambda_transform.arn
   package_type  = "Image"
   image_uri     = "${aws_ecr_repository.transform.repository_url}@${data.aws_ecr_image.transform_latest.image_digest}"
-  timeout       = 300
-  memory_size   = 1024
+  # 900s (Lambda's absolute max) + 2048MB, up from 300s/1024MB: Europe's
+  # ~8x-vs-India data volume started timing out every batch-chain run at
+  # the old 300s ceiling (confirmed via Step Functions execution history —
+  # Sandbox.Timedout on 4 consecutive runs). More memory also means more
+  # proportional CPU for the pandas transform, not just headroom.
+  timeout       = 900
+  memory_size   = 2048
 
   tracing_config {
     mode = "Active"

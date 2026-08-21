@@ -77,15 +77,21 @@ export function LayerControls({
               {corridorLimit} / {totalCorridors}
             </span>
           </div>
-          <input
-            type="range"
-            min={5}
-            max={Math.max(totalCorridors, 5)}
-            step={5}
-            value={corridorLimit}
-            onChange={(e) => onCorridorLimitChange(Number(e.target.value))}
-            className="mt-1 w-full accent-accent-cyan"
-          />
+          {totalCorridors === 0 ? (
+            <p className="mt-1.5 text-[10px] leading-relaxed text-warn/80">
+              Reference rebuilding after a region switch — corridors and anomaly detection resume once enough data accumulates.
+            </p>
+          ) : (
+            <input
+              type="range"
+              min={5}
+              max={Math.max(totalCorridors, 5)}
+              step={5}
+              value={corridorLimit}
+              onChange={(e) => onCorridorLimitChange(Number(e.target.value))}
+              className="mt-1 w-full accent-accent-cyan"
+            />
+          )}
         </div>
       )}
 

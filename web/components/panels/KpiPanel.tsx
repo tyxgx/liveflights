@@ -6,7 +6,20 @@ import { usePolledData } from "@/hooks/usePolledData";
 import { Panel } from "@/components/ui/Panel";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 
-function Kpi({ label, value, unit }: { label: string; value: string; unit?: string }) {
+function Kpi({
+  label,
+  value,
+  unit,
+  note,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+  /** Shown instead of a plain number when the value can't be read at
+   * face value (e.g. "0 anomalies" while detection is offline reads as
+   * "all clear" — it isn't). */
+  note?: string;
+}) {
   return (
     <div className="flex flex-col gap-1 px-4 py-3">
       <span className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
@@ -16,11 +29,12 @@ function Kpi({ label, value, unit }: { label: string; value: string; unit?: stri
         {value}
         {unit && <span className="ml-1 text-sm font-normal text-ink-muted">{unit}</span>}
       </span>
+      {note && <span className="text-[9px] leading-tight text-warn/80">{note}</span>}
     </div>
   );
 }
 
-export function KpiPanel() {
+export function KpiPanel({ anomalyDetectionOffline = false }: { anomalyDetectionOffline?: boolean }) {
   const { data, error, loading, refetch } = usePolledData(api.overview, 15000);
 
   return (
@@ -41,7 +55,11 @@ export function KpiPanel() {
           <Kpi label="Active Flights" value={formatNumber(data?.active_flights)} />
           <Kpi label="Countries" value={formatNumber(data?.countries)} />
           <Kpi label="Avg Altitude" value={formatNumber(data?.avg_altitude_ft)} unit="ft" />
-          <Kpi label="Anomalies" value={formatNumber(data?.anomaly_count)} />
+          <Kpi
+            label="Anomalies"
+            value={anomalyDetectionOffline ? "—" : formatNumber(data?.anomaly_count)}
+            note={anomalyDetectionOffline ? "detection offline" : undefined}
+          />
         </div>
       )}
     </Panel>

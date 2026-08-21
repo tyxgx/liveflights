@@ -18,10 +18,16 @@ export function AnomalyFeed({
   onSelect,
   collapsed,
   onToggleCollapse,
+  totalCorridors,
 }: {
   onSelect: (event: AnomalyEvent) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /** Anomaly scoring reads the corridor reference table — 0 means the ML
+   * reference is empty (e.g. just reset after a region switch), not that
+   * traffic happens to be anomaly-free. The empty state below needs to
+   * say which of those it actually is. */
+  totalCorridors: number;
 }) {
   const { data, error, loading, refetch } = usePolledData(() => api.anomalies(1, 50), 10000);
   const [includeTestRecords, setIncludeTestRecords] = useState(false);
@@ -77,6 +83,11 @@ export function AnomalyFeed({
           </div>
         ) : error && !data ? (
           <ErrorState message={error} onRetry={refetch} />
+        ) : events.length === 0 && totalCorridors === 0 ? (
+          <EmptyState
+            message="Anomaly detection is offline, not clean."
+            detail="The ML corridor reference (what 'normal' looks like per route) is rebuilding after a recent region switch — anomaly scoring needs it and is skipped until it's ready. This isn't the same as zero anomalies."
+          />
         ) : events.length === 0 ? (
           <EmptyState message="No anomalies detected right now." />
         ) : (

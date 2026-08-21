@@ -65,6 +65,11 @@ export function TrafficForecastChart() {
           Dashed segment = forecast (model trained on synthetic history), not observed traffic.
         </p>
       )}
+      {!forecast.loading && !forecast.data && (
+        <p className="mb-1 text-[10px] text-ink-faint">
+          Forecast unavailable here — not yet ported to the serverless cloud API, local-stack only for now.
+        </p>
+      )}
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={rows} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" vertical={false} />

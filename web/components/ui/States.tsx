@@ -18,6 +18,11 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
   );
 }
 
-export function EmptyState({ message }: { message: string }) {
-  return <div className="px-4 py-6 text-xs text-ink-faint">{message}</div>;
+export function EmptyState({ message, detail }: { message: string; detail?: string }) {
+  return (
+    <div className="flex flex-col gap-1.5 px-4 py-6">
+      <p className="text-xs text-ink-faint">{message}</p>
+      {detail && <p className="text-[11px] leading-relaxed text-ink-faint/70">{detail}</p>}
+    </div>
+  );
 }
