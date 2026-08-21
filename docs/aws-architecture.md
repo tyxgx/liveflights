@@ -6,6 +6,16 @@ compute throughout, and a hard budget ceiling of **under $5/month**. This
 doc explains what got built, what got deliberately left out, and why — the
 "why" is the part worth reading.
 
+> **Post-deployment update (Aug 2026):** the live region was switched from
+> India to Europe (an 8-point adsb.lol fan-out — see
+> `infra/terraform/variables.tf`'s `adsb_lol_points` — since one point+radius
+> circle is capped at 250nm and can't cover a continent), and the
+> bronze→silver→gold batch chain got a schedule it was previously missing
+> entirely. Europe's data volume runs roughly 8x India's, so the cost table
+> below (~$2.60–3.85/mo) is now an underestimate — revised to roughly
+> **$4–6/mo**. The architecture, trade-offs, and restrictions documented
+> below are otherwise unchanged.
+
 ## Architecture
 
 ```mermaid
