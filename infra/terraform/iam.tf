@@ -80,8 +80,15 @@ data "aws_iam_policy_document" "lambda_api_policy" {
     resources = [aws_athena_workgroup.gold.arn]
   }
   statement {
-    sid     = "GlueCatalogRead"
-    actions = ["glue:GetTable", "glue:GetTables", "glue:GetDatabase", "glue:GetPartitions"]
+    sid = "GlueCatalogRead"
+    # GetPartitions (plural, listing) was here but not GetPartition/
+    # BatchGetPartition (singular/batch, resolving a specific partition) —
+    # never surfaced until a WHERE run_ts = '...' query needed Athena to
+    # resolve one partition directly instead of scanning the full listing.
+    actions = [
+      "glue:GetTable", "glue:GetTables", "glue:GetDatabase",
+      "glue:GetPartitions", "glue:GetPartition", "glue:BatchGetPartition",
+    ]
     resources = [
       aws_glue_catalog_database.gold.arn,
       "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.gold.name}/*",
