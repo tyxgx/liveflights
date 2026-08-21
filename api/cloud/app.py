@@ -226,11 +226,34 @@ def stats_overview() -> dict:
     }
 
 
+def _latest_run_ts(table: str) -> str | None:
+    """Each batch-chain run writes gold as a NEW run_ts partition rather than
+    overwriting the last one (see docs/aws-architecture.md) — so `SELECT *
+    ... ORDER BY x LIMIT n` with no run_ts filter silently mixes rows from
+    every run ever executed, not just the current state. For
+    by-country/airline-activity (a snapshot of "who's flying right now"),
+    that's wrong: multiple runs' rows compete in the same top-N instead of
+    one coherent breakdown. Filtering to MAX(run_ts) fixes it.
+    """
+    rows = run_athena_query(f'SELECT MAX(run_ts) AS run_ts FROM "{ATHENA_DATABASE}"."{table}"')
+    return rows[0]["run_ts"] if rows and rows[0].get("run_ts") else None
+
+
 @app.get("/api/stats/traffic-by-hour")
 def stats_traffic_by_hour(hours: int = 24) -> dict:
+    """Unlike by-country/airline-activity below, this one legitimately needs
+    every run_ts partition — a multi-hour trend line is exactly "sum what
+    each run contributed to each hour_bucket", not one run's snapshot.
+    Grouping (with a flight-count-weighted average) collapses any
+    hour_bucket that more than one run wrote into, instead of the un-grouped
+    query showing duplicate/fragmented rows for the same hour.
+    """
     rows = run_athena_query(
-        f'SELECT * FROM "{ATHENA_DATABASE}"."traffic_by_hour" '
-        f"ORDER BY hour_bucket DESC LIMIT {int(hours)}"
+        f'SELECT hour_bucket, SUM(flight_count) AS flight_count, '
+        f"SUM(avg_altitude_ft * flight_count) / NULLIF(SUM(flight_count), 0) AS avg_altitude_ft, "
+        f"SUM(avg_speed_kmh * flight_count) / NULLIF(SUM(flight_count), 0) AS avg_speed_kmh "
+        f'FROM "{ATHENA_DATABASE}"."traffic_by_hour" '
+        f"GROUP BY hour_bucket ORDER BY hour_bucket DESC LIMIT {int(hours)}"
     )
     points = [
         {
@@ -247,9 +270,11 @@ def stats_traffic_by_hour(hours: int = 24) -> dict:
 
 @app.get("/api/stats/by-country")
 def stats_by_country(limit: int = 20) -> dict:
+    run_ts = _latest_run_ts("traffic_by_country")
+    where = f"WHERE run_ts = '{run_ts}' " if run_ts else ""
     rows = run_athena_query(
         f'SELECT * FROM "{ATHENA_DATABASE}"."traffic_by_country" '
-        f"ORDER BY flight_count DESC LIMIT {int(limit)}"
+        f"{where}ORDER BY flight_count DESC LIMIT {int(limit)}"
     )
     countries = [
         {
@@ -263,9 +288,11 @@ def stats_by_country(limit: int = 20) -> dict:
 
 @app.get("/api/stats/airline-activity")
 def stats_airline_activity(limit: int = 20) -> list[dict]:
+    run_ts = _latest_run_ts("airline_activity")
+    where = f"WHERE run_ts = '{run_ts}' " if run_ts else ""
     return run_athena_query(
         f'SELECT * FROM "{ATHENA_DATABASE}"."airline_activity" '
-        f"ORDER BY flight_count DESC LIMIT {int(limit)}"
+        f"{where}ORDER BY flight_count DESC LIMIT {int(limit)}"
     )
 
 
