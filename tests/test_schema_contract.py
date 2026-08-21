@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from ingestion.schemas.adsb_lol_raw import AdsbLolAircraft
 from ingestion.schemas.flight_state import FlightState
 from ingestion.schemas.opensky_raw import OpenSkyStateVector
 from ingestion.simulator import FlightSimulator
@@ -221,3 +222,35 @@ def test_callsign_normalisation(raw_callsign, expected):
     if state.callsign is not None:
         assert state.callsign == state.callsign.strip()
         assert state.callsign != ""
+
+
+# --- Source-adapter parity: every registered adapter must produce valid FlightState ---
+#
+# Unlike the OpenSky-specific tests above (which assert against OpenSky's
+# exact 17-column positional contract), this section is adapter-agnostic: it
+# proves each source's *mapping* to FlightState works end to end against a
+# real captured fixture, without assuming any adapter shares OpenSky's wire
+# format. An adapter that can't produce a valid FlightState from its own real
+# fixture fails here loudly, not silently downstream.
+
+
+def _adsb_lol_states_from_fixture() -> list[FlightState]:
+    payload = json.loads((FIXTURES_DIR / "adsb_lol_real_sample.json").read_text())
+    now = payload["now"] / 1000
+    return [AdsbLolAircraft(**row).to_flight_state(now=now) for row in payload["ac"]]
+
+
+SOURCE_ADAPTER_FIXTURES: dict[str, object] = {
+    "opensky": lambda: _load_real_flight_states(FIXTURES_DIR / "opensky_real_sample.json"),
+    "adsb_lol": _adsb_lol_states_from_fixture,
+    "simulate": lambda: _generate_simulated_flight_states(ticks=5),
+}
+
+
+@pytest.mark.parametrize("adapter_name", list(SOURCE_ADAPTER_FIXTURES))
+def test_every_source_adapter_produces_valid_flight_states(adapter_name):
+    states = SOURCE_ADAPTER_FIXTURES[adapter_name]()
+    assert len(states) > 0, f"{adapter_name} adapter produced zero states from its fixture"
+    for state in states:
+        assert isinstance(state, FlightState)
+        assert state.source == adapter_name

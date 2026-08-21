@@ -13,9 +13,12 @@ import random
 import string
 import time
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from ingestion.airports import Airport, get_airports
-from ingestion.schemas.flight_state import FlightState
+
+if TYPE_CHECKING:
+    from ingestion.schemas.flight_state import FlightState
 
 EARTH_RADIUS_M = 6_371_000.0
 CRUISE_ALTITUDE_M = 10_500.0
@@ -228,4 +231,8 @@ class FlightSimulator:
         return states
 
     def tick_flight_states(self) -> list[FlightState]:
+        # Imported lazily so `tick()` alone (dicts only) works without pydantic
+        # installed — the AWS ingest Lambda vendors this module but not pydantic.
+        from ingestion.schemas.flight_state import FlightState
+
         return [FlightState(source="simulate", **s) for s in self.tick()]

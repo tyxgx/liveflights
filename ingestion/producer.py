@@ -15,10 +15,9 @@ from confluent_kafka import Producer
 from pydantic import ValidationError
 
 from ingestion.config import IngestionSettings, settings
-from ingestion.opensky import OpenSkyClient
 from ingestion.replay import DEFAULT_FIXTURE_PATH, ReplaySource
 from ingestion.schemas.flight_state import FlightState
-from ingestion.simulator import FlightSimulator
+from ingestion.sources import get_source
 
 logger = logging.getLogger("ingestion.producer")
 
@@ -74,18 +73,7 @@ def run(mode: str, once: bool, fixture_path: Path = DEFAULT_FIXTURE_PATH) -> Non
     logging.basicConfig(level=settings.log_level, format=log_format)
     producer = FlightProducer(settings)
 
-    if mode == "simulate":
-        sim = FlightSimulator(
-            settings.simulator_aircraft_count,
-            settings.simulator_anomaly_rate,
-            region=settings.region,
-        )
-        interval = settings.poll_interval_seconds
-        source = "simulate"
-
-        def poll() -> list[dict]:
-            return sim.tick()
-    elif mode == "replay":
+    if mode == "replay":
         replay = ReplaySource(fixture_path)
         interval = settings.poll_interval_seconds
         source = "opensky"
@@ -93,13 +81,13 @@ def run(mode: str, once: bool, fixture_path: Path = DEFAULT_FIXTURE_PATH) -> Non
         def poll() -> list[dict]:
             return replay.fetch_states()
     else:
-        client = OpenSkyClient(settings)
-        source = "opensky"
+        # "simulate", "opensky", "adsb_lol" — anything registered in ingestion.sources
+        adapter = get_source(mode, settings=settings)
+        source = mode
+        interval = getattr(adapter, "poll_interval_seconds", settings.poll_interval_seconds)
 
         def poll() -> list[dict]:
-            return client.fetch_states()
-
-        interval = client.poll_interval_seconds
+            return adapter.fetch_states()
 
     logger.info("Starting producer in mode=%s interval=%ss", mode, interval)
     while True:
@@ -128,7 +116,9 @@ def run(mode: str, once: bool, fixture_path: Path = DEFAULT_FIXTURE_PATH) -> Non
 def main() -> None:
     parser = argparse.ArgumentParser(description="liveflights ingestion producer")
     parser.add_argument(
-        "--mode", choices=["simulate", "opensky", "replay"], default=settings.ingest_mode
+        "--mode",
+        choices=["simulate", "opensky", "adsb_lol", "replay"],
+        default=settings.ingest_mode,
     )
     parser.add_argument("--once", action="store_true", help="Publish a single batch and exit")
     parser.add_argument(

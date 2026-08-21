@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # a loose superset spanning all three so a single OpenSky poll can cover
 # everything at once (at the cost of a much bigger response payload).
 REGION_BBOXES: dict[str, tuple[float, float, float, float]] = {
-    "europe": (45.0, 5.0, 56.0, 20.0),
+    "europe": (34.0, -25.0, 71.0, 40.0),
     "us": (24.0, -125.0, 49.0, -66.0),
     "india": (6.0, 68.0, 37.0, 97.5),
     "all": (6.0, -125.0, 60.0, 97.5),

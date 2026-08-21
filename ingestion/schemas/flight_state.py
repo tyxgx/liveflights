@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-Source = Literal["simulate", "opensky"]
+Source = Literal["simulate", "simulate_cloud", "opensky", "adsb_lol", "opensky_historical"]
 
 
 class FlightState(BaseModel):
