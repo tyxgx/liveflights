@@ -426,21 +426,43 @@ def _build_polyline(sub: pd.DataFrame, n_points: int = 10) -> list[list[float]]:
     return [[round(r.latitude, 4), round(r.longitude, 4)] for r in sample.itertuples()]
 
 
+
+# Reading every silver partition ever written assumed the original design
+# volume (~1,300 cruise rows in 1.5h of India-region polling) — at Europe's
+# actual volume (measured: ~2.75M cruise rows accumulated in ~4h post
+# region-switch, ~300K total rows PER 15-minute batch-chain partition) that
+# assumption OOM-killed a 2048MB Lambda outright on the very first retrain
+# attempt. Even 3 partitions (~900K rows) still OOM'd — one partition alone
+# clears MIN_ROWS_TO_REPLACE_CANONICAL by ~60x, so there's no accuracy
+# reason to read more; recency-bounding this hard is strictly an
+# improvement anyway (corridors should reflect current traffic, not an
+# ever-growing all-time blend).
+MAX_RETRAIN_PARTITIONS = 1
+
+
 def retrain_corridors(region: str = "india") -> dict:
-    """Reads all accumulated cloud silver data, re-fits DBSCAN, overwrites the
-    corridor artifact in S3. Returns a report dict — including an honest
-    call on whether there was enough data for a meaningful fit."""
+    """Reads the most recent silver partitions, re-fits DBSCAN, overwrites
+    the corridor artifact in S3. Returns a report dict — including an
+    honest call on whether there was enough data for a meaningful fit."""
     from sklearn.cluster import DBSCAN
     from sklearn.preprocessing import StandardScaler
 
     paginator = s3.get_paginator("list_objects_v2")
+    keys = [
+        obj["Key"]
+        for page in paginator.paginate(Bucket=BUCKET, Prefix="silver/")
+        for obj in page.get("Contents", [])
+        if obj["Key"].endswith(".parquet")
+    ]
+    # run_ts is embedded in the key path (silver/run_ts=<...>/silver.parquet)
+    # so a plain lexicographic sort is already a chronological sort.
+    keys.sort(reverse=True)
+    keys = keys[:MAX_RETRAIN_PARTITIONS]
+
     frames = []
-    for page in paginator.paginate(Bucket=BUCKET, Prefix="silver/"):
-        for obj in page.get("Contents", []):
-            if not obj["Key"].endswith(".parquet"):
-                continue
-            body = s3.get_object(Bucket=BUCKET, Key=obj["Key"])["Body"].read()
-            frames.append(pd.read_parquet(io.BytesIO(body)))
+    for key in keys:
+        body = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read()
+        frames.append(pd.read_parquet(io.BytesIO(body)))
     if not frames:
         return {"retrained": False, "reason": "no silver data found"}
 

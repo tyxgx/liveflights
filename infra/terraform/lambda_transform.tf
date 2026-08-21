@@ -67,8 +67,14 @@ resource "aws_lambda_function" "transform" {
   # the old 300s ceiling (confirmed via Step Functions execution history —
   # Sandbox.Timedout on 4 consecutive runs). More memory also means more
   # proportional CPU for the pandas transform, not just headroom.
+  # 3008MB, up from 2048MB: even after bounding retrain_corridors() to a
+  # single silver partition (~300K rows), DBSCAN + StandardScaler +
+  # NearestNeighbors still OOM'd at 2048MB — that pipeline's peak memory
+  # footprint is well above what the regular per-run bronze->silver->gold
+  # transform needs at the same row count (this same function, same
+  # memory setting, handles a batch-chain run fine).
   timeout       = 900
-  memory_size   = 2048
+  memory_size   = 3008
 
   tracing_config {
     mode = "Active"
