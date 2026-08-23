@@ -1,98 +1,88 @@
-"""Cloud API: a deliberately smaller sibling of api/main.py, not the same app.
+"""Cloud API: reads two small S3 JSON files and computes every stat on the
+fly — that's the entire backing store now.
 
-Why this isn't just `api/main.py` wrapped in Mangum: the local API's
-`/ws/flights` push loop and `live_store.py` assume a long-lived process with
-a background Kafka consumer thread — neither survives a Lambda invocation,
-which starts cold, runs one request, and may freeze or be reaped at any
-moment. `/api/forecast/traffic` is still backed locally by an MLflow model
-this cloud path doesn't provision — out of scope for this phase. But
-`/api/corridors` and `/api/anomalies` ARE served here now: corridor
-discovery (DBSCAN) is transductive (no `.predict()` on new points), so "the
-trained model" is really the discovered corridor centroid table, which
-travels to the cloud as a small JSON artifact — see
-docs/aws-architecture.md for how it's produced and refreshed.
+NOTE (Aug 2026): this stack is a live-data-only MVP — ML (corridor
+discovery, anomaly detection, traffic forecast, and the departure/
+predicted-destination/ETA trajectory-tracking that briefly lived here) is
+paused. Along with it: DynamoDB (3 tables), Athena, Glue Catalog, Step
+Functions, the transform Lambda, and the Bedrock text-to-SQL Lambda — all
+removed, not just unused, since none of them have a consumer right now.
+See docs/aws-architecture.md for the reasoning; the short version is that
+DynamoDB's full-table item-by-item rewrite every 1-minute poll was a real,
+measured ~$155/mo problem once Europe's multi-point coverage pushed the
+live-state table to ~4,600 items, and none of that machinery was needed
+just to answer "what's flying right now" — one small overwritten S3 object
+(live/latest.json) does that for a few cents a month.
 
-What this app actually serves, backed by the resources this Terraform stack
-creates:
-  - GET /health                    — liveness only
-  - GET /api/flights/live          — latest per-aircraft state from DynamoDB
-  - GET /api/corridors             — corridor reference table from S3 (models/)
-  - GET /api/anomalies             — Athena query over gold.anomaly_events
-  - GET /api/stats/overview        — Athena query over gold.traffic_by_hour
-  - GET /api/stats/traffic-by-hour — Athena query over gold.traffic_by_hour
-  - GET /api/stats/by-country      — Athena query over gold.traffic_by_country
-  - GET /api/stats/airline-activity — Athena query over gold.airline_activity
+What this app actually serves, backed by the resources this Terraform
+stack creates:
+  - GET /health                       — liveness only
+  - GET /api/flights/live             — the live snapshot, straight from S3
+  - GET /api/stats/overview           — computed from the live snapshot
+  - GET /api/stats/by-country         — computed from the live snapshot
+  - GET /api/stats/airline-activity   — computed from the live snapshot
+  - GET /api/stats/altitude-distribution — computed from the live snapshot
+  - GET /api/stats/traffic-by-hour    — from stats/hourly.json (a small
+                                         rolling aggregate the ingest Lambda
+                                         maintains, not a data warehouse)
+  - GET /api/corridors, /api/anomalies — stub responses, `"paused": true`,
+                                          so the dashboard can render an
+                                          honest "ML paused" state instead
+                                          of erroring or reading as "0
+                                          anomalies found" (a real anomaly-
+                                          rate claim would need the ML
+                                          pipeline actually running)
 
-`/ws/flights` has no cloud equivalent; poll `/api/flights/live` instead —
-documented in README under "Cloud deployment differences".
+`/ws/flights` has no cloud equivalent; poll `/api/flights/live` instead.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import time
 
 import boto3
 from botocore.exceptions import ClientError
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from mangum import Mangum
+
+from utils.airlines import callsign_to_airline
 
 app = FastAPI(
     title="liveflights cloud API",
-    description="Serverless read path over the AWS batch pipeline (see docs/aws-architecture.md).",
-    version="0.1.0-cloud",
+    description="Serverless live-data API (ML paused) — see docs/aws-architecture.md.",
+    version="0.2.0-cloud-mvp",
 )
 
-dynamodb = boto3.resource("dynamodb")
-athena = boto3.client("athena")
 s3 = boto3.client("s3")
 
-TABLE_NAME = os.environ["DYNAMODB_TABLE_NAME"]
-ATHENA_DATABASE = os.environ["ATHENA_DATABASE"]
-ATHENA_WORKGROUP = os.environ["ATHENA_WORKGROUP"]
 LAKE_BUCKET = os.environ["LAKE_BUCKET"]
-CORRIDOR_ARTIFACT_KEY = os.environ.get("CORRIDOR_ARTIFACT_KEY", "models/corridors_v1.json")
+LIVE_SNAPSHOT_KEY = "live/latest.json"
+HOURLY_STATS_KEY = "stats/hourly.json"
 
-ALLOWED_TABLES = {
-    "traffic_by_hour", "traffic_by_country", "airline_activity", "altitude_band_distribution",
-}
+ALTITUDE_BANDS: list[tuple[float, float, str]] = [
+    (-1000, 0, "ground"),
+    (0, 5000, "0-5k"),
+    (5000, 15000, "5-15k"),
+    (15000, 25000, "15-25k"),
+    (25000, 35000, "25-35k"),
+    (35000, 45000, "35-45k"),
+    (45000, 100000, "45k+"),
+]
 
 
-def run_athena_query(sql: str, poll_seconds: float = 0.5, max_polls: int = 20) -> list[dict]:
-    """Synchronous Athena query helper: start, poll, fetch, shape as list-of-dicts.
+def _load_json(key: str, default: dict) -> dict:
+    try:
+        obj = s3.get_object(Bucket=LAKE_BUCKET, Key=key)
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] == "NoSuchKey":
+            return default
+        raise
+    return json.loads(obj["Body"].read())
 
-    Only ever called with SQL this module builds itself against
-    ALLOWED_TABLES — never with user-supplied SQL (that's the Bedrock
-    Lambda's job, with its own separate guardrails).
-    """
-    exec_id = athena.start_query_execution(
-        QueryString=sql,
-        QueryExecutionContext={"Database": ATHENA_DATABASE},
-        WorkGroup=ATHENA_WORKGROUP,
-    )["QueryExecutionId"]
 
-    for _ in range(max_polls):
-        execution = athena.get_query_execution(QueryExecutionId=exec_id)
-        status = execution["QueryExecution"]["Status"]["State"]
-        if status in ("SUCCEEDED", "FAILED", "CANCELLED"):
-            break
-        time.sleep(poll_seconds)
-    else:
-        raise HTTPException(status_code=504, detail="Athena query timed out")
-
-    if status != "SUCCEEDED":
-        raise HTTPException(status_code=502, detail=f"Athena query {status}")
-
-    result = athena.get_query_results(QueryExecutionId=exec_id)
-    rows = result["ResultSet"]["Rows"]
-    if not rows:
-        return []
-    header = [c.get("VarCharValue", "") for c in rows[0]["Data"]]
-    return [
-        dict(zip(header, [c.get("VarCharValue") for c in row["Data"]], strict=False))
-        for row in rows[1:]
-    ]
+def _live_flights() -> dict:
+    return _load_json(LIVE_SNAPSHOT_KEY, {"updated_at": None, "count": 0, "flights": []})
 
 
 @app.get("/health")
@@ -102,198 +92,90 @@ def health() -> dict:
 
 @app.get("/api/flights/live")
 def flights_live(limit: int = 500) -> dict:
-    table = dynamodb.Table(TABLE_NAME)
-    items = table.scan(Limit=min(limit, 1000)).get("Items", [])
-    return {"count": len(items), "flights": items}
-
-
-@app.get("/api/corridors")
-def corridors(limit: int = 20) -> dict:
-    """Corridor reference table, sorted by member_count (busiest first).
-
-    Not an Athena query — this is a small S3 JSON artifact (see module
-    docstring), refreshed by the daily corridor-retrain step of the batch
-    chain, not by every 1-minute ingestion poll. Response shape matches the
-    frontend's `CorridorsResponse`/`Corridor` types exactly (same contract
-    the local API serves), so the dashboard's CorridorLayer needs no
-    cloud-specific branch. The artifact stores altitude_mean_ft/std_ft, not
-    percentiles (see docs/aws-architecture.md) — p10/p50/p90 below are a
-    normal-distribution approximation from those two, same as the artifact
-    export itself did in reverse.
-    """
-    try:
-        obj = s3.get_object(Bucket=LAKE_BUCKET, Key=CORRIDOR_ARTIFACT_KEY)
-    except ClientError as exc:
-        if exc.response["Error"]["Code"] == "NoSuchKey":
-            return {"total_corridors": 0, "returned": 0, "corridors": []}
-        raise
-    artifact = json.loads(obj["Body"].read())
-    ranked = sorted(artifact["corridors"], key=lambda c: c["member_count"], reverse=True)
-    shaped = [
-        {
-            "corridor_id": c["corridor_id"],
-            "centroid_lat": c["centroid_lat"],
-            "centroid_lon": c["centroid_lon"],
-            "modal_heading_deg": c["modal_heading_deg"],
-            "altitude_p10_ft": round(c["altitude_mean_ft"] - 1.2816 * c["altitude_std_ft"], 1),
-            "altitude_p50_ft": c["altitude_mean_ft"],
-            "altitude_p90_ft": round(c["altitude_mean_ft"] + 1.2816 * c["altitude_std_ft"], 1),
-            "member_count": c["member_count"],
-            "polyline": c["polyline"],
-        }
-        for c in ranked[:limit]
-    ]
-    return {
-        "total_corridors": len(artifact["corridors"]),
-        "returned": len(shaped),
-        "corridors": shaped,
-    }
-
-
-@app.get("/api/anomalies")
-def anomalies(page: int = 1, page_size: int = 50, flagged_only: bool = True) -> dict:
-    """Response shape matches the frontend's `AnomaliesResponse`/`AnomalyEvent`
-    types exactly. `anomaly_reason` (this pipeline's column name) is aliased
-    to `anomaly_type` (the field name AnomalyFeed.tsx already renders) —
-    both are the same comma-joined reasons string, just named differently
-    between the local and cloud pipelines' own gold tables. `origin_country`
-    and `speed_kmh` aren't columns on gold.anomaly_events (see
-    lambda_transform/handler.py's score_anomalies) — returned as null rather
-    than guessed.
-    """
-    where = "WHERE is_ml_anomaly = true" if flagged_only else ""
-    rows = run_athena_query(
-        f'SELECT icao24, callsign, latitude, longitude, altitude_ft, corridor_id, '
-        f'anomaly_score, anomaly_reason, lateral_distance_km, heading_deviation_deg, '
-        f'altitude_z, ingest_ts '
-        f'FROM "{ATHENA_DATABASE}"."anomaly_events" {where} '
-        f'ORDER BY anomaly_score DESC LIMIT {int(page_size)}'
-    )
-    def _f(row: dict, key: str) -> float | None:
-        return float(row[key]) if row.get(key) else None
-
-    events = [
-        {
-            "icao24": r["icao24"],
-            "callsign": r["callsign"],
-            "origin_country": None,
-            "ingest_ts": r["ingest_ts"],
-            "latitude": _f(r, "latitude"),
-            "longitude": _f(r, "longitude"),
-            "altitude_ft": _f(r, "altitude_ft"),
-            "speed_kmh": None,
-            "anomaly_score": float(r["anomaly_score"]),
-            "anomaly_type": r["anomaly_reason"],
-            "nearest_corridor_id": int(r["corridor_id"]) if r.get("corridor_id") else None,
-            "lateral_distance_km": _f(r, "lateral_distance_km"),
-            "heading_deviation_deg": _f(r, "heading_deviation_deg"),
-            "altitude_z": _f(r, "altitude_z"),
-            "unassigned_corridor": None,
-        }
-        for r in rows
-    ]
-    return {"total": len(events), "page": page, "page_size": page_size, "events": events}
+    data = _live_flights()
+    flights = data.get("flights", [])[: min(limit, 2000)]
+    return {"count": len(flights), "flights": flights, "updated_at": data.get("updated_at")}
 
 
 @app.get("/api/stats/overview")
 def stats_overview() -> dict:
-    """Shape matches the frontend's `OverviewStats` exactly — the local API
-    computes these same four fields from its own live-flights store; this
-    computes them from DynamoDB's latest-state table (same source
-    `/api/flights/live` reads) plus one Athena count for anomalies.
-    """
-    table = dynamodb.Table(TABLE_NAME)
-    items = table.scan().get("Items", [])
-    altitudes_m = [float(i["baro_altitude"]) for i in items if i.get("baro_altitude") is not None]
-    countries = {i["origin_country"] for i in items if i.get("origin_country")}
-
-    anomaly_count = 0
-    try:
-        rows = run_athena_query(
-            f'SELECT COUNT(*) AS cnt FROM "{ATHENA_DATABASE}"."anomaly_events" '
-            f"WHERE is_ml_anomaly = true"
-        )
-        anomaly_count = int(rows[0]["cnt"]) if rows and rows[0].get("cnt") else 0
-    except HTTPException:
-        anomaly_count = 0  # anomaly_events may not have a partition yet on a fresh deploy
-
+    flights = _live_flights().get("flights", [])
+    altitudes_m = [f["baro_altitude"] for f in flights if f.get("baro_altitude") is not None]
+    countries = {f["origin_country"] for f in flights if f.get("origin_country")}
     avg_altitude_ft = (sum(altitudes_m) / len(altitudes_m) * 3.28084) if altitudes_m else None
     return {
-        "active_flights": len(items),
+        "active_flights": len(flights),
         "countries": len(countries),
         "avg_altitude_ft": avg_altitude_ft,
-        "anomaly_count": anomaly_count,
+        # Not "0 anomalies found" — anomaly detection isn't running at all
+        # right now (ML paused). null is deliberate; a bare 0 here would
+        # read as a real (and false) "nothing unusual" claim.
+        "anomaly_count": None,
+        "ml_paused": True,
     }
-
-
-def _latest_run_ts(table: str) -> str | None:
-    """Each batch-chain run writes gold as a NEW run_ts partition rather than
-    overwriting the last one (see docs/aws-architecture.md) — so `SELECT *
-    ... ORDER BY x LIMIT n` with no run_ts filter silently mixes rows from
-    every run ever executed, not just the current state. For
-    by-country/airline-activity (a snapshot of "who's flying right now"),
-    that's wrong: multiple runs' rows compete in the same top-N instead of
-    one coherent breakdown. Filtering to MAX(run_ts) fixes it.
-    """
-    rows = run_athena_query(f'SELECT MAX(run_ts) AS run_ts FROM "{ATHENA_DATABASE}"."{table}"')
-    return rows[0]["run_ts"] if rows and rows[0].get("run_ts") else None
-
-
-@app.get("/api/stats/traffic-by-hour")
-def stats_traffic_by_hour(hours: int = 24) -> dict:
-    """Unlike by-country/airline-activity below, this one legitimately needs
-    every run_ts partition — a multi-hour trend line is exactly "sum what
-    each run contributed to each hour_bucket", not one run's snapshot.
-    Grouping (with a flight-count-weighted average) collapses any
-    hour_bucket that more than one run wrote into, instead of the un-grouped
-    query showing duplicate/fragmented rows for the same hour.
-    """
-    rows = run_athena_query(
-        f'SELECT hour_bucket, SUM(flight_count) AS flight_count, '
-        f"SUM(avg_altitude_ft * flight_count) / NULLIF(SUM(flight_count), 0) AS avg_altitude_ft, "
-        f"SUM(avg_speed_kmh * flight_count) / NULLIF(SUM(flight_count), 0) AS avg_speed_kmh "
-        f'FROM "{ATHENA_DATABASE}"."traffic_by_hour" '
-        f"GROUP BY hour_bucket ORDER BY hour_bucket DESC LIMIT {int(hours)}"
-    )
-    points = [
-        {
-            "hour_bucket": r["hour_bucket"],
-            "flight_count": int(r["flight_count"]) if r.get("flight_count") else 0,
-            "avg_altitude_ft": float(r["avg_altitude_ft"]) if r.get("avg_altitude_ft") else None,
-            "avg_speed_kmh": float(r["avg_speed_kmh"]) if r.get("avg_speed_kmh") else None,
-            "is_synthetic": False,
-        }
-        for r in rows
-    ]
-    return {"points": points}
 
 
 @app.get("/api/stats/by-country")
 def stats_by_country(limit: int = 20) -> dict:
-    run_ts = _latest_run_ts("traffic_by_country")
-    where = f"WHERE run_ts = '{run_ts}' " if run_ts else ""
-    rows = run_athena_query(
-        f'SELECT * FROM "{ATHENA_DATABASE}"."traffic_by_country" '
-        f"{where}ORDER BY flight_count DESC LIMIT {int(limit)}"
-    )
-    countries = [
-        {
-            "origin_country": r["origin_country"],
-            "flight_count": int(r["flight_count"]) if r.get("flight_count") else 0,
-        }
-        for r in rows
-    ]
-    return {"countries": countries}
+    flights = _live_flights().get("flights", [])
+    counts: dict[str, int] = {}
+    for f in flights:
+        country = f.get("origin_country") or "Unknown"
+        counts[country] = counts.get(country, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    return {"countries": [{"origin_country": k, "flight_count": v} for k, v in ranked]}
 
 
 @app.get("/api/stats/airline-activity")
 def stats_airline_activity(limit: int = 20) -> list[dict]:
-    run_ts = _latest_run_ts("airline_activity")
-    where = f"WHERE run_ts = '{run_ts}' " if run_ts else ""
-    return run_athena_query(
-        f'SELECT * FROM "{ATHENA_DATABASE}"."airline_activity" '
-        f"{where}ORDER BY flight_count DESC LIMIT {int(limit)}"
-    )
+    flights = _live_flights().get("flights", [])
+    counts: dict[str, int] = {}
+    for f in flights:
+        airline = callsign_to_airline(f.get("callsign"))
+        counts[airline] = counts.get(airline, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    return [{"airline": k, "flight_count": v} for k, v in ranked]
+
+
+@app.get("/api/stats/altitude-distribution")
+def stats_altitude_distribution() -> dict:
+    flights = _live_flights().get("flights", [])
+    counts = {label: 0 for _, _, label in ALTITUDE_BANDS}
+    for f in flights:
+        alt_m = f.get("baro_altitude")
+        alt_ft = (alt_m * 3.28084) if alt_m is not None else -1
+        for lo, hi, label in ALTITUDE_BANDS:
+            if lo < alt_ft <= hi:
+                counts[label] += 1
+                break
+    return {"bands": [{"altitude_band": label, "flight_count": counts[label]} for _, _, label in ALTITUDE_BANDS]}
+
+
+@app.get("/api/stats/traffic-by-hour")
+def stats_traffic_by_hour(hours: int = 24) -> dict:
+    data = _load_json(HOURLY_STATS_KEY, {"hours": []})
+    recent = data.get("hours", [])[-hours:]
+    points = [
+        {
+            "hour_bucket": h["hour"],
+            "flight_count": h.get("flight_count", 0),
+            "avg_altitude_ft": h.get("avg_altitude_ft"),
+            "avg_speed_kmh": None,
+            "is_synthetic": False,
+        }
+        for h in recent
+    ]
+    return {"points": points}
+
+
+@app.get("/api/corridors")
+def corridors(limit: int = 20) -> dict:
+    return {"total_corridors": 0, "returned": 0, "corridors": [], "ml_paused": True}
+
+
+@app.get("/api/anomalies")
+def anomalies(page: int = 1, page_size: int = 50, flagged_only: bool = True) -> dict:
+    return {"total": 0, "page": page, "page_size": page_size, "events": [], "ml_paused": True}
 
 
 handler = Mangum(app)

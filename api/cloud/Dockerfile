@@ -7,4 +7,10 @@ RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
 
 COPY api/cloud/app.py ${LAMBDA_TASK_ROOT}/app.py
 
+# Vendored: app.py's airline-activity stat needs the same static
+# callsign-prefix lookup the (paused) transform Lambda used to use for
+# gold.airline_activity — reused as-is rather than duplicated.
+COPY streaming/utils/airlines.py ${LAMBDA_TASK_ROOT}/utils/airlines.py
+RUN touch ${LAMBDA_TASK_ROOT}/utils/__init__.py
+
 CMD ["app.handler"]
