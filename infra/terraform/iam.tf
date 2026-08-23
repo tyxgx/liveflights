@@ -226,7 +226,17 @@ data "aws_iam_policy_document" "github_actions_assume" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:*"]
+      # Not just "repo:${var.github_repo}:*" — every CI run has been denied
+      # with "Not authorized to perform sts:AssumeRoleWithWebIdentity" since
+      # this stack's very first deploy, and CloudTrail shows why: GitHub
+      # actually sends `sub` as "repo:tyxgx@175643418/liveflights@1315793014:
+      # ref:refs/heads/main", not the plain "repo:owner/repo:..." form. GitHub
+      # permanently switches to this owner-id/repo-id-suffixed format for any
+      # repo (or owner) that's ever been renamed, specifically so a renamed-
+      # away login can't be re-registered by someone else to steal a role
+      # that still trusts the old name. github_repo's plain "owner/repo"
+      # value can't express that suffix, so it's hardcoded here instead.
+      values = ["repo:tyxgx@175643418/liveflights@1315793014:*"]
     }
   }
 }
