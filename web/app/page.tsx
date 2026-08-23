@@ -117,7 +117,7 @@ export default function DashboardPage() {
           floating panels render BEHIND the map regardless of DOM order. */}
       <div className="pointer-events-none absolute left-4 top-4 z-[1000] flex flex-col">
         <div className="pointer-events-auto">
-          <KpiPanel anomalyDetectionOffline={(corridorsData?.total_corridors ?? 0) === 0} />
+          <KpiPanel />
         </div>
         <div className="pointer-events-auto -mt-px">
           {CLOUD_MODE ? (
@@ -146,6 +146,7 @@ export default function DashboardPage() {
             corridorLimit={corridorLimit}
             onCorridorLimitChange={setCorridorLimit}
             totalCorridors={corridorsData?.total_corridors ?? 0}
+            mlPaused={corridorsData?.ml_paused ?? false}
           />
         </div>
         <div className="pointer-events-auto min-h-0 flex-1">
@@ -153,7 +154,7 @@ export default function DashboardPage() {
             onSelect={selectAnomaly}
             collapsed={anomalyFeedCollapsed}
             onToggleCollapse={() => setAnomalyFeedCollapsed((v) => !v)}
-            totalCorridors={corridorsData?.total_corridors ?? 0}
+            mlPaused={anomaliesData?.ml_paused ?? false}
           />
         </div>
       </div>

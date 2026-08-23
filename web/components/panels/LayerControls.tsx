@@ -16,6 +16,7 @@ interface Props {
   corridorLimit: number;
   onCorridorLimitChange: (n: number) => void;
   totalCorridors: number;
+  mlPaused: boolean;
 }
 
 function Toggle({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
@@ -45,6 +46,7 @@ export function LayerControls({
   corridorLimit,
   onCorridorLimitChange,
   totalCorridors,
+  mlPaused,
 }: Props) {
   return (
     <Panel className="w-[240px] p-3">
@@ -77,9 +79,9 @@ export function LayerControls({
               {corridorLimit} / {totalCorridors}
             </span>
           </div>
-          {totalCorridors === 0 ? (
+          {mlPaused ? (
             <p className="mt-1.5 text-[10px] leading-relaxed text-warn/80">
-              Reference rebuilding after a region switch — corridors and anomaly detection resume once enough data accumulates.
+              ML is currently paused on this deployment — corridor discovery and anomaly detection aren&apos;t running. This build focuses on live flight data and dashboards only.
             </p>
           ) : (
             <input

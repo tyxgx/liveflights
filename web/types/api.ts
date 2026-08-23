@@ -55,7 +55,10 @@ export interface OverviewStats {
   active_flights: number;
   countries: number;
   avg_altitude_ft: number | null;
-  anomaly_count: number;
+  // null (not 0) while ML is paused — a real 0 would claim "checked, found
+  // nothing unusual", which anomaly detection isn't running to actually say.
+  anomaly_count: number | null;
+  ml_paused: boolean;
 }
 
 export interface TrafficByHourPoint {
@@ -104,6 +107,7 @@ export interface AnomaliesResponse {
   page: number;
   page_size: number;
   events: AnomalyEvent[];
+  ml_paused: boolean;
 }
 
 export interface Corridor {
@@ -122,6 +126,7 @@ export interface CorridorsResponse {
   total_corridors: number;
   returned: number;
   corridors: Corridor[];
+  ml_paused: boolean;
 }
 
 export interface ForecastPoint {

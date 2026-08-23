@@ -34,8 +34,9 @@ function Kpi({
   );
 }
 
-export function KpiPanel({ anomalyDetectionOffline = false }: { anomalyDetectionOffline?: boolean }) {
+export function KpiPanel() {
   const { data, error, loading, refetch } = usePolledData(api.overview, 15000);
+  const mlPaused = data?.ml_paused ?? false;
 
   return (
     <Panel className="w-[560px] max-w-[92vw]">
@@ -57,8 +58,8 @@ export function KpiPanel({ anomalyDetectionOffline = false }: { anomalyDetection
           <Kpi label="Avg Altitude" value={formatNumber(data?.avg_altitude_ft)} unit="ft" />
           <Kpi
             label="Anomalies"
-            value={anomalyDetectionOffline ? "—" : formatNumber(data?.anomaly_count)}
-            note={anomalyDetectionOffline ? "detection offline" : undefined}
+            value={mlPaused ? "—" : formatNumber(data?.anomaly_count)}
+            note={mlPaused ? "ML paused" : undefined}
           />
         </div>
       )}
