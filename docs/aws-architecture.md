@@ -16,6 +16,26 @@ doc explains what got built, what got deliberately left out, and why — the
 > **$4–6/mo**. The architecture, trade-offs, and restrictions documented
 > below are otherwise unchanged.
 
+> **Second post-deployment update (Aug 23 2026):** DynamoDB's live-state
+> table turned out to be a real ~$155/month problem (full-table item-by-item
+> rewrite every 1-minute poll, measured via CloudWatch) once Europe's
+> coverage pushed the live-item-count to ~4,600. DynamoDB, Athena, Glue,
+> Step Functions, the transform Lambda, and the Bedrock text-to-SQL Lambda
+> were all removed as a result — the live-state store is now two small S3
+> objects (`live/latest.json`, fully overwritten every poll; `stats/
+> hourly.json`, a small rolling aggregate), with every stat the API serves
+> computed on the fly from those two files. ML (corridor discovery, anomaly
+> detection, trajectory tracking) is **paused**, not deleted from the
+> codebase — the sections below describing it are historical, not current.
+> Expected cost is now a few cents/month. Most of "Architecture", "ML
+> scoring in the cloud", and the DynamoDB/Athena-specific parts of "What
+> changed in the API" below describe that earlier, now-removed
+> architecture — kept for the reasoning trail, not as a description of
+> what's currently deployed. Also: the CI/CD `plan`/`apply`/`deploy-*` jobs
+> described under "Security notes" no longer exist —
+> `.github/workflows/deploy.yml` is lint+test only now, see that section's
+> update below for why.
+
 ## Architecture
 
 ```mermaid
@@ -380,21 +400,37 @@ Lambda:
   Athena, Bedrock, SSM, Firehose) is reachable over the public AWS API
   endpoints without a VPC.
 - **GitHub Actions authenticates via OIDC** (`aws_iam_openid_connect_provider.github`
-  in `iam.tf`), not long-lived IAM access keys — the trust policy is scoped
-  to `repo:tyxgx/liveflights:*` so no other repository can assume the role.
-  **Caveat, stated plainly**: the OIDC role this Terraform creates
-  (`github_actions`) is scoped only to the day-2 deploy actions the
-  `deploy-api`/`deploy-frontend` CI jobs actually perform — ECR push, S3
-  sync (site bucket, no CDN invalidation needed — see the restrictions
-  section above), Lambda code update. It is **not** granted
-  permission to create/modify the infrastructure itself. The `plan`/`apply`
-  jobs in `.github/workflows/deploy.yml` are included to match the
-  requested pipeline shape, but running `terraform apply` from CI against
-  this account would require a broader, infra-provisioning-scoped role —
-  which this project does not grant automatically. For a solo project,
-  running `terraform apply` from a developer's own authenticated AWS CLI
-  session (as was done to stand this stack up) is the safer default;
-  broadening the CI role is a deliberate future decision, not a default.
+  in `iam.tf`), not long-lived IAM access keys. The trust policy's `sub`
+  condition is *not* the plain `repo:tyxgx/liveflights:*` you'd expect —
+  CloudTrail showed the actual claim GitHub sends is
+  `repo:tyxgx@175643418/liveflights@1315793014:*`. GitHub permanently
+  switches to this owner-id/repo-id-suffixed format for any repository (or
+  its owner account) that's ever been renamed, so a renamed-away login
+  can't be re-registered by someone else to steal a role that still trusts
+  the old name — real security behavior, just undocumented enough that this
+  cost real debugging time (every CI run failed with `Not authorized to
+  perform sts:AssumeRoleWithWebIdentity` from this stack's very first
+  deploy until it was root-caused via CloudTrail on 2026-08-23).
+- **`.github/workflows/deploy.yml` is lint+test only** (`ruff check` +
+  `pytest`) — there is no `plan`/`apply`/`deploy-api`/`deploy-frontend` job.
+  Those existed originally but were removed once the OIDC fix above
+  actually let CI authenticate and exposed the real, deeper problem behind
+  it: this project's Terraform state is local-only (see `versions.tf` — a
+  remote S3 backend + lock table would cost a small always-on amount,
+  intentionally skipped for a $5-budget demo), so a CI runner always starts
+  from an *empty* state with no way to know what already exists in AWS —
+  `terraform apply` there tries to recreate every resource from scratch,
+  failing loudly with `AccessDenied`/`AlreadyExists` on almost everything
+  (the `github_actions` role is deliberately scoped to only ECR push + S3
+  site sync + one Lambda's code update, not full infra CRUD, so most of
+  those creates were denied outright regardless). Fixing that properly
+  needs a real remote backend and a much broader IAM role for anything
+  with push access to `main` — a real security tradeoff this personal
+  project doesn't take. Infra changes are applied manually instead
+  (`terraform apply` from an authenticated local session, verified against
+  live AWS afterward) — same as every infra change this project has made.
+  The OIDC role/provider Terraform is kept (harmless, costs nothing) in
+  case a real remote-state + broader-IAM setup is worth it later.
 
 ## Verification performed
 

@@ -6,15 +6,31 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  id-token: write # required for AWS OIDC — no long-lived access keys anywhere in this workflow
-  contents: read
-
 env:
   AWS_REGION: us-east-1
   TF_WORKING_DIR: infra/terraform
 
 jobs:
+  # CI is intentionally lint+test only — there is no plan/apply/deploy job.
+  # This project's Terraform state is local-only on purpose (see
+  # versions.tf: a remote S3 backend + lock table would cost a small
+  # always-on amount, undesirable for a $5-budget demo). That means a CI
+  # runner always starts from an empty state and has no way to know what
+  # already exists in AWS, so `terraform apply` there tries to recreate
+  # every resource from scratch — it doesn't fail quietly, it fails loudly
+  # with AccessDenied/AlreadyExists on almost everything, since the
+  # github_actions IAM role is (deliberately) scoped to only ECR push + S3
+  # site sync + one Lambda's code update, not full infra CRUD.
+  #
+  # Fixing that properly needs a remote backend (real, if small, monthly
+  # cost) and a much broader IAM role for anything with write access to
+  # this repo's main branch (a real security tradeoff for a personal
+  # project). Not worth it here — infra changes are applied manually
+  # (`terraform apply`, verified against live AWS afterward) instead, same
+  # as every infra change this project has ever made. See
+  # docs/aws-architecture.md and infra/terraform/iam.tf's github_actions
+  # role for the (currently unused, but harmless to leave) OIDC plumbing,
+  # kept in case a real remote-state + broader-IAM setup is worth it later.
   test:
     runs-on: ubuntu-latest
     steps:
@@ -23,83 +39,3 @@ jobs:
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run pytest
-
-  plan:
-    needs: test
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - uses: hashicorp/setup-terraform@v3
-      - run: terraform init
-        working-directory: ${{ env.TF_WORKING_DIR }}
-      - run: terraform plan -no-color
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
-  apply:
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - uses: hashicorp/setup-terraform@v3
-      - run: terraform init
-        working-directory: ${{ env.TF_WORKING_DIR }}
-      - run: terraform apply -auto-approve
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
-  deploy-api:
-    needs: apply
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - uses: aws-actions/amazon-ecr-login@v2
-        id: ecr
-      - run: |
-          # --provenance=false --sbom=false --output type=docker: without these,
-          # BuildKit's containerd snapshotter pushes an OCI image *index* even
-          # for a single platform, which Lambda's CreateFunction/UpdateFunctionCode
-          # rejects ("image manifest ... not supported").
-          docker build --platform linux/amd64 --provenance=false --sbom=false --output type=docker -f api/cloud/Dockerfile \
-            -t ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPO_NAME }}:${{ github.sha }} .
-          docker push ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPO_NAME }}:${{ github.sha }}
-      - run: |
-          aws lambda update-function-code \
-            --function-name ${{ vars.API_LAMBDA_NAME }} \
-            --image-uri ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPO_NAME }}:${{ github.sha }}
-
-  deploy-frontend:
-    needs: apply
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - run: pnpm install
-        working-directory: web
-      - run: pnpm build
-        working-directory: web
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      # No CDN invalidation step: cloudfront:CreateDistribution is account-restricted
-      # on this account (see docs/aws-architecture.md), so the site is served
-      # straight from S3 static website hosting — a sync is all a deploy needs.
-      - run: aws s3 sync web/out s3://${{ vars.SITE_BUCKET_NAME }} --delete
