@@ -45,7 +45,6 @@ import boto3
 from botocore.exceptions import ClientError
 from fastapi import FastAPI
 from mangum import Mangum
-
 from utils.airlines import callsign_to_airline
 
 app = FastAPI(
@@ -148,7 +147,10 @@ def stats_altitude_distribution() -> dict:
             if lo < alt_ft <= hi:
                 counts[label] += 1
                 break
-    return {"bands": [{"altitude_band": label, "flight_count": counts[label]} for _, _, label in ALTITUDE_BANDS]}
+    bands = [
+        {"altitude_band": label, "flight_count": counts[label]} for _, _, label in ALTITUDE_BANDS
+    ]
+    return {"bands": bands}
 
 
 @app.get("/api/stats/traffic-by-hour")
