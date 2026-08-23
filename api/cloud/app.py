@@ -92,7 +92,13 @@ def health() -> dict:
 @app.get("/api/flights/live")
 def flights_live(limit: int = 500) -> dict:
     data = _live_flights()
-    flights = data.get("flights", [])[: min(limit, 2000)]
+    # Cap raised from 2000 to 6000: the previous cap silently truncated a
+    # full-Europe snapshot (~3,600+ aircraft and climbing) to whatever
+    # arrived first in live/latest.json's list — which merge order (fastest-
+    # responding adsb.lol point wins ties) skews toward one geographic hub,
+    # not a random cross-section. A caller asking for "everything" got a
+    # biased subset of one region instead, not an even sample of Europe.
+    flights = data.get("flights", [])[: min(limit, 6000)]
     return {"count": len(flights), "flights": flights, "updated_at": data.get("updated_at")}
 
 

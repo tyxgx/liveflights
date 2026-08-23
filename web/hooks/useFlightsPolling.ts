@@ -71,7 +71,13 @@ export function useFlightsPolling(enabled: boolean = true) {
 
     async function poll() {
       try {
-        const res = await api.liveFlights(1000);
+        // 1000 silently truncated a full-Europe snapshot (~3,600+ and
+        // climbing) to whatever happened to be first in the API's list —
+        // which skews toward one geographic hub (whichever adsb.lol point
+        // responded fastest that poll), not a random cross-section. The map
+        // was rendering ~100% British Isles and nothing else as a result.
+        // 6000 comfortably covers current + headroom; matches the API's cap.
+        const res = await api.liveFlights(6000);
         if (cancelled) return;
         const now = Date.now();
         baseFlightsRef.current = res.flights;
