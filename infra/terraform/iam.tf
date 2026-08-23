@@ -1,9 +1,14 @@
 # Every role below is scoped to the specific resources this stack creates —
-# no `Resource: "*"` on anything that touches data. Where an AWS-managed
-# policy is used (e.g. AWSGlueServiceRole), it's because Glue/basic Lambda
-# execution genuinely need broad, low-risk, AWS-curated permissions
-# (CloudWatch Logs group creation, ENI cleanup) that aren't worth
-# hand-rolling and carry no data-plane risk.
+# no `Resource: "*"` on anything that touches data.
+#
+# NOTE (Aug 2026): this stack was simplified down to a live-data-only MVP —
+# ML (corridors/anomalies/forecast/trajectory-tracking) is paused, along
+# with everything that only existed to serve it: DynamoDB (3 tables),
+# Step Functions, the transform Lambda, Glue Catalog, Athena, and the
+# Bedrock text-to-SQL Lambda. Removed here rather than left dangling and
+# unused — see docs/aws-architecture.md for the reasoning (this was also
+# the fix for a real ~$155/mo DynamoDB write-cost problem, not just a
+# scope cut). Re-add when ML work resumes.
 
 data "aws_iam_policy_document" "lambda_assume" {
   statement {
@@ -34,22 +39,29 @@ data "aws_iam_policy_document" "lambda_ingest_policy" {
     resources = [aws_kinesis_firehose_delivery_stream.lake.arn]
   }
   statement {
-    # GetItem/BatchGetItem added for departure/arrival detection — reading
-    # each aircraft's PREVIOUS state (before overwriting it) is how a
-    # ground->climb or descent->ground transition gets noticed at all.
-    sid       = "DynamoDbLatestState"
-    actions   = ["dynamodb:BatchWriteItem", "dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:BatchGetItem"]
-    resources = [aws_dynamodb_table.latest_state.arn]
+    # Replaces the old DynamoDB latest-state write: one small JSON object,
+    # overwritten every poll, instead of a full-table item-by-item rewrite
+    # (the actual root cause of the ~$155/mo DynamoDB bill this replaced —
+    # ~4,600 items x 60 writes/hour vs. one S3 PUT/min here).
+    sid       = "LiveStateWrite"
+    actions   = ["s3:PutObject", "s3:GetObject"]
+    resources = ["${aws_s3_bucket.lake.arn}/live/*", "${aws_s3_bucket.lake.arn}/stats/*"]
   }
   statement {
-    sid       = "DynamoDbTrajectories"
-    actions   = ["dynamodb:PutItem", "dynamodb:BatchWriteItem"]
-    resources = [aws_dynamodb_table.trajectories.arn]
-  }
-  statement {
-    sid       = "DynamoDbFlightRoutes"
-    actions   = ["dynamodb:PutItem"]
-    resources = [aws_dynamodb_table.flight_routes.arn]
+    # Same reasoning as api's LiveStateList: _update_hourly_stats does a
+    # read-modify-write on stats/hourly.json, and without ListBucket a
+    # GetObject on that key before it exists for the first time comes back
+    # AccessDenied instead of NoSuchKey, so the handler's except-NoSuchKey
+    # fallback never fires. No s3:prefix condition here (tried that first —
+    # S3's implicit "does this key exist" check that triggers this whole
+    # 403-vs-404 situation doesn't populate an s3:prefix value, so a
+    # StringLike condition on it evaluates false and the ListBucket grant
+    # never actually applies). This is metadata-listing only (object keys,
+    # not contents), on a bucket that already has narrowly-scoped read/write
+    # elsewhere, so bucket-wide is an acceptable trade for it actually working.
+    sid       = "LiveStateList"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.lake.arn]
   }
   statement {
     sid       = "SsmRead"
@@ -88,40 +100,25 @@ data "aws_iam_policy_document" "lambda_api_policy" {
     resources = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.name_prefix}-api*"]
   }
   statement {
-    sid       = "AthenaQuery"
-    actions   = ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults", "athena:StopQueryExecution"]
-    resources = [aws_athena_workgroup.gold.arn]
-  }
-  statement {
-    sid = "GlueCatalogRead"
-    # GetPartitions (plural, listing) was here but not GetPartition/
-    # BatchGetPartition (singular/batch, resolving a specific partition) —
-    # never surfaced until a WHERE run_ts = '...' query needed Athena to
-    # resolve one partition directly instead of scanning the full listing.
-    actions = [
-      "glue:GetTable", "glue:GetTables", "glue:GetDatabase",
-      "glue:GetPartitions", "glue:GetPartition", "glue:BatchGetPartition",
-    ]
-    resources = [
-      aws_glue_catalog_database.gold.arn,
-      "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.gold.name}/*",
-      "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog",
-    ]
-  }
-  statement {
-    sid       = "AthenaResultsBucket"
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:GetBucketLocation", "s3:ListBucket"]
-    resources = [aws_s3_bucket.lake.arn, "${aws_s3_bucket.lake.arn}/athena-results/*", "${aws_s3_bucket.lake.arn}/gold/*"]
-  }
-  statement {
-    sid       = "MlArtifactRead"
+    # Read-only: the live snapshot + the small rolling hourly-stats file.
+    # Every stat the API serves is computed on the fly from these, in
+    # Python, in the Lambda itself — no Athena/Glue query round-trip.
+    sid       = "LiveStateRead"
     actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.lake.arn}/models/*"]
+    resources = ["${aws_s3_bucket.lake.arn}/live/*", "${aws_s3_bucket.lake.arn}/stats/*"]
   }
   statement {
-    sid       = "DynamoDbRead"
-    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan"]
-    resources = [aws_dynamodb_table.latest_state.arn]
+    # Without ListBucket, a GetObject on a *missing* key (e.g. stats/hourly.json
+    # before the ingest Lambda has written it once) comes back as an opaque
+    # AccessDenied instead of NoSuchKey — S3 hides whether the object exists
+    # from callers with no listing rights. app.py's _load_json only handles
+    # NoSuchKey, so without this the API 500s until that file happens to exist.
+    # No s3:prefix condition (tried that first — the implicit existence check
+    # that triggers this doesn't populate s3:prefix, so a StringLike condition
+    # on it always evaluates false and silently never grants anything).
+    sid       = "LiveStateList"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.lake.arn]
   }
   statement {
     sid       = "XRay"
@@ -134,51 +131,6 @@ resource "aws_iam_role_policy" "lambda_api" {
   name   = "${local.name_prefix}-lambda-api"
   role   = aws_iam_role.lambda_api.id
   policy = data.aws_iam_policy_document.lambda_api_policy.json
-}
-
-# --- Bedrock text-to-SQL Lambda ---
-
-resource "aws_iam_role" "lambda_bedrock_sql" {
-  name               = "${local.name_prefix}-lambda-bedrock-sql"
-  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
-}
-
-data "aws_iam_policy_document" "lambda_bedrock_sql_policy" {
-  statement {
-    sid       = "Logs"
-    actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.name_prefix}-bedrock-sql*"]
-  }
-  statement {
-    sid       = "BedrockInvoke"
-    actions   = ["bedrock:InvokeModel"]
-    resources = ["arn:aws:bedrock:${var.aws_region}::foundation-model/${var.bedrock_model_id}"]
-  }
-  statement {
-    sid       = "AthenaQuery"
-    actions   = ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults"]
-    resources = [aws_athena_workgroup.gold.arn]
-  }
-  statement {
-    sid     = "GlueCatalogRead"
-    actions = ["glue:GetTable", "glue:GetTables", "glue:GetDatabase"]
-    resources = [
-      aws_glue_catalog_database.gold.arn,
-      "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.gold.name}/*",
-      "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog",
-    ]
-  }
-  statement {
-    sid       = "AthenaResultsBucket"
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:GetBucketLocation", "s3:ListBucket"]
-    resources = [aws_s3_bucket.lake.arn, "${aws_s3_bucket.lake.arn}/athena-results/*", "${aws_s3_bucket.lake.arn}/gold/*"]
-  }
-}
-
-resource "aws_iam_role_policy" "lambda_bedrock_sql" {
-  name   = "${local.name_prefix}-lambda-bedrock-sql"
-  role   = aws_iam_role.lambda_bedrock_sql.id
-  policy = data.aws_iam_policy_document.lambda_bedrock_sql_policy.json
 }
 
 # --- Firehose delivery role (writes to S3) ---
@@ -217,96 +169,6 @@ resource "aws_iam_role_policy" "firehose" {
   policy = data.aws_iam_policy_document.firehose_policy.json
 }
 
-# --- Transform Lambda role (bronze -> silver -> gold, replaces the blocked Glue Job) ---
-
-resource "aws_iam_role" "lambda_transform" {
-  name               = "${local.name_prefix}-lambda-transform"
-  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
-}
-
-data "aws_iam_policy_document" "lambda_transform_policy" {
-  statement {
-    sid       = "Logs"
-    actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.name_prefix}-transform*"]
-  }
-  statement {
-    sid       = "LakeReadWrite"
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
-    resources = [aws_s3_bucket.lake.arn, "${aws_s3_bucket.lake.arn}/*"]
-  }
-  statement {
-    sid     = "GlueCatalog"
-    actions = ["glue:GetTable", "glue:GetTables", "glue:GetDatabase", "glue:CreatePartition", "glue:BatchCreatePartition"]
-    resources = [
-      aws_glue_catalog_database.gold.arn,
-      "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.gold.name}/*",
-      "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog",
-    ]
-  }
-  statement {
-    sid       = "XRay"
-    actions   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"]
-    resources = ["*"] # X-Ray write access has no resource-level ARN support
-  }
-}
-
-resource "aws_iam_role_policy" "lambda_transform" {
-  name   = "${local.name_prefix}-lambda-transform"
-  role   = aws_iam_role.lambda_transform.id
-  policy = data.aws_iam_policy_document.lambda_transform_policy.json
-}
-
-# --- Step Functions role ---
-
-data "aws_iam_policy_document" "sfn_assume" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["states.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "sfn" {
-  name               = "${local.name_prefix}-sfn"
-  assume_role_policy = data.aws_iam_policy_document.sfn_assume.json
-}
-
-data "aws_iam_policy_document" "sfn_policy" {
-  statement {
-    sid       = "InvokeTransform"
-    actions   = ["lambda:InvokeFunction"]
-    resources = [aws_lambda_function.transform.arn]
-  }
-  statement {
-    sid     = "ValidateTables"
-    actions = ["glue:GetTables"]
-    resources = [
-      aws_glue_catalog_database.gold.arn,
-      "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.gold.name}/*",
-      "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog",
-    ]
-  }
-  statement {
-    sid       = "Logs"
-    actions   = ["logs:CreateLogDelivery", "logs:GetLogDelivery", "logs:UpdateLogDelivery", "logs:DeleteLogDelivery", "logs:ListLogDeliveries", "logs:PutResourcePolicy", "logs:DescribeResourcePolicies", "logs:DescribeLogGroups"]
-    resources = ["*"] # required verbatim by the SFN logging-to-CloudWatch feature, no ARN support
-  }
-  statement {
-    sid       = "SnsNotify"
-    actions   = ["sns:Publish"]
-    resources = [aws_sns_topic.alarms.arn]
-  }
-}
-
-resource "aws_iam_role_policy" "sfn" {
-  name   = "${local.name_prefix}-sfn"
-  role   = aws_iam_role.sfn.id
-  policy = data.aws_iam_policy_document.sfn_policy.json
-}
-
 # --- EventBridge Scheduler role (invokes the ingestion Lambda) ---
 
 data "aws_iam_policy_document" "scheduler_assume" {
@@ -327,16 +189,7 @@ resource "aws_iam_role" "scheduler" {
 data "aws_iam_policy_document" "scheduler_policy" {
   statement {
     actions   = ["lambda:InvokeFunction"]
-    resources = [aws_lambda_function.ingest.arn, aws_lambda_function.transform.arn]
-  }
-
-  # Lets EventBridge Scheduler start the batch-chain Step Functions
-  # execution directly (see aws_scheduler_schedule.batch_chain in
-  # stepfunctions.tf) — originally missing entirely, so nothing ever
-  # triggered bronze->silver->gold outside manual/one-off invocations.
-  statement {
-    actions   = ["states:StartExecution"]
-    resources = [aws_sfn_state_machine.batch_chain.arn]
+    resources = [aws_lambda_function.ingest.arn]
   }
 }
 

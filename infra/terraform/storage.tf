@@ -1,11 +1,21 @@
-# --- S3: the lakehouse bucket (bronze/silver/gold prefixes) ---
+# --- S3: the lakehouse bucket ---
+#
+# NOTE (Aug 2026): simplified to a live-data-only MVP — ML is paused, so
+# silver/gold/athena-results/models/ (all ML-pipeline outputs) are gone.
+# What's left: bronze/ (raw historical archive, kept cheap for when ML
+# resumes) and two new prefixes that replace DynamoDB entirely for the
+# live dashboard — live/ (one small overwritten JSON snapshot) and
+# stats/ (one small rolling hourly-aggregate JSON). See iam.tf and
+# docs/aws-architecture.md for why: DynamoDB's full-table rewrite every
+# poll was a real ~$155/mo problem, and a single overwritten S3 object is
+# functionally equivalent for "what does the dashboard show right now."
 
 resource "aws_s3_bucket" "lake" {
   bucket = "${local.name_prefix}-lake-${data.aws_caller_identity.current.account_id}"
 
   # Versioning intentionally off — this is a demo dataset re-derivable from
   # OpenSky at any time, and versioning would silently accumulate storage
-  # cost across the 5-minute ingestion cadence.
+  # cost across the 1-minute ingestion cadence.
 }
 
 resource "aws_s3_bucket_public_access_block" "lake" {
@@ -31,25 +41,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "lake" {
 resource "aws_s3_bucket_lifecycle_configuration" "lake" {
   bucket = aws_s3_bucket.lake.id
 
-  # athena-results/ gets its own shorter rule: every API request that hits
-  # Athena (/api/stats/*, /api/corridors, /api/anomalies) writes a result
-  # object here, so it churns much faster than the actual lake data and was
-  # found growing unbounded (18k+ objects) with no expiry applied at all —
-  # this and the bronze/silver/gold rule below were declared here but never
-  # actually reconciled against the live bucket, which is the drift this
-  # fixes.
-  rule {
-    id     = "expire-athena-results"
-    status = "Enabled"
-    filter {
-      prefix = "athena-results/"
-    }
-
-    expiration {
-      days = 7
-    }
-  }
-
+  # bronze/ is the only prefix that actually accumulates unboundedly (one
+  # object per poll) — live/ and stats/ are single objects, overwritten in
+  # place every run, so they never grow and need no expiry rule.
   rule {
     id     = "expire-bronze"
     status = "Enabled"
@@ -61,36 +55,12 @@ resource "aws_s3_bucket_lifecycle_configuration" "lake" {
       days = 30
     }
   }
-
-  rule {
-    id     = "expire-silver"
-    status = "Enabled"
-    filter {
-      prefix = "silver/"
-    }
-
-    expiration {
-      days = 30
-    }
-  }
-
-  rule {
-    id     = "expire-gold"
-    status = "Enabled"
-    filter {
-      prefix = "gold/"
-    }
-
-    expiration {
-      days = 30
-    }
-  }
 }
 
-# Empty marker objects so the bronze/silver/gold layout is visible in the
+# Empty marker objects so the bronze/live/stats layout is visible in the
 # console even before the first ingestion run.
 resource "aws_s3_object" "layer_markers" {
-  for_each = toset(["bronze/", "silver/", "gold/", "athena-results/"])
+  for_each = toset(["bronze/", "live/", "stats/"])
 
   bucket  = aws_s3_bucket.lake.id
   key     = "${each.value}.keep"
@@ -115,78 +85,4 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "site" {
       sse_algorithm = "AES256"
     }
   }
-}
-
-# --- S3: Athena query results (separate prefix already covered above, but
-#     Athena workgroups conventionally point at their own location) ---
-# Uses the same bucket's athena-results/ prefix, configured in athena.tf.
-
-# --- DynamoDB: latest state per icao24 ---
-
-resource "aws_dynamodb_table" "latest_state" {
-  name         = "${local.name_prefix}-latest-state"
-  billing_mode = "PAY_PER_REQUEST" # on-demand — no provisioned-capacity cost when idle
-  hash_key     = "icao24"
-
-  attribute {
-    name = "icao24"
-    type = "S"
-  }
-
-  ttl {
-    attribute_name = "expires_at"
-    enabled        = true
-  }
-}
-
-# --- DynamoDB: per-aircraft trajectory (every position sample while airborne) ---
-#
-# Real route info (departure/arrival airport) isn't in ADS-B at all — the
-# transponder broadcasts only the current state vector, never a flight
-# plan. This table is what makes departure/arrival detection possible from
-# our own data: one item per (icao24, timestamp) sample from takeoff to
-# landing. TTL of 48h is generous headroom over any real flight duration
-# this deployment's regions would see, so completed/abandoned trajectories
-# clean themselves up without a separate job.
-resource "aws_dynamodb_table" "trajectories" {
-  name         = "${local.name_prefix}-trajectories"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "icao24"
-  range_key    = "timestamp"
-
-  attribute {
-    name = "icao24"
-    type = "S"
-  }
-  attribute {
-    name = "timestamp"
-    type = "N"
-  }
-
-  ttl {
-    attribute_name = "expires_at"
-    enabled        = true
-  }
-}
-
-# --- DynamoDB: finalized departure->arrival routes (the ground-truth this
-#     project didn't have before — a real alternative to the DBSCAN-
-#     discovered "corridors", once enough of these accumulate) ---
-resource "aws_dynamodb_table" "flight_routes" {
-  name         = "${local.name_prefix}-flight-routes"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "icao24"
-  range_key    = "arrival_time"
-
-  attribute {
-    name = "icao24"
-    type = "S"
-  }
-  attribute {
-    name = "arrival_time"
-    type = "N"
-  }
-
-  # No TTL — this is meant to accumulate as a training/analysis dataset,
-  # not self-evict like the live-state tables above.
 }

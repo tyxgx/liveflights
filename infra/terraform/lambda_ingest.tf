@@ -1,14 +1,18 @@
 # --- Ingestion Lambda: plain zip, stdlib + boto3 only, no layer needed ---
 
-# Vendors ingestion/simulator.py + airports.py + the adsb.lol pure-mapping
-# module (repo root, two levels up from this module) into the zip alongside
-# handler.py, so the Lambda can reuse the exact same simulator and adsb.lol
+# Vendors ingestion/simulator.py + the adsb.lol pure-mapping module (repo
+# root, two levels up from this module) into the zip alongside handler.py,
+# so the Lambda can reuse the exact same simulator and adsb.lol
 # field-mapping logic as the local producer without a build step or a
 # pydantic dependency — simulator.tick() and map_to_flight_state_dict() both
 # return plain dicts. ingestion/__init__.py and ingestion/schemas/__init__.py
 # are synthetic empty files here, not the real repo files, so importing
 # these two modules doesn't pull in the real ingestion/schemas/__init__.py
 # (which eagerly imports pydantic-dependent modules the Lambda doesn't have).
+# airports.py is still vendored — not for handler.py directly anymore (the
+# departure/predicted-destination feature that used it is paused along with
+# the rest of ML), but simulator.py itself imports it for the fallback
+# path's spawn-pool airports.
 data "archive_file" "lambda_ingest" {
   type        = "zip"
   output_path = "${path.module}/build/lambda_ingest.zip"
@@ -69,7 +73,10 @@ resource "aws_lambda_function" "ingest" {
   environment {
     variables = {
       FIREHOSE_STREAM_NAME = aws_kinesis_firehose_delivery_stream.lake.name
-      DYNAMODB_TABLE_NAME  = aws_dynamodb_table.latest_state.name
+      # Live state is one small S3 object, overwritten every poll — not
+      # DynamoDB (removed; a full-table item-by-item rewrite every minute
+      # was a real ~$155/mo problem, see iam.tf/docs/aws-architecture.md).
+      LAKE_BUCKET_NAME = aws_s3_bucket.lake.id
       # OpenSky is unreachable from this Lambda's egress IP (see
       # docs/aws-architecture.md) — adsb.lol (a community aggregator) IS
       # reachable and is the primary source; the simulator below is only the
@@ -85,14 +92,6 @@ resource "aws_lambda_function" "ingest" {
       ADSB_LOL_MAX_WORKERS     = tostring(var.adsb_lol_max_workers)
       ADSB_LOL_STAGGER_SECONDS = tostring(var.adsb_lol_stagger_seconds)
       ADSB_LOL_RETRY_ATTEMPTS  = tostring(var.adsb_lol_retry_attempts)
-      # Departure/arrival detection (ground<->airborne transitions) + a
-      # heading-based predicted-destination/ETA estimate — see
-      # docs/architecture.md for why this can only ever be an estimate
-      # while airborne (ADS-B carries no flight plan, only the current
-      # state vector).
-      TRAJECTORIES_TABLE_NAME  = aws_dynamodb_table.trajectories.name
-      FLIGHT_ROUTES_TABLE_NAME = aws_dynamodb_table.flight_routes.name
-      AIRPORT_MATCH_RADIUS_KM  = "50"
     }
   }
 

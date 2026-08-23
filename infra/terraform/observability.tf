@@ -45,23 +45,6 @@ resource "aws_cloudwatch_metric_alarm" "lambda_api_errors" {
   ok_actions    = [aws_sns_topic.alarms.arn]
 }
 
-resource "aws_cloudwatch_metric_alarm" "lambda_bedrock_sql_errors" {
-  alarm_name          = "${local.name_prefix}-bedrock-sql-lambda-errors"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "Errors"
-  namespace           = "AWS/Lambda"
-  period              = 300
-  statistic           = "Sum"
-  threshold           = 0
-  alarm_description   = "Bedrock text-to-SQL Lambda raised an error in the last 5 minutes."
-  dimensions = {
-    FunctionName = aws_lambda_function.bedrock_sql.function_name
-  }
-  alarm_actions = [aws_sns_topic.alarms.arn]
-  ok_actions    = [aws_sns_topic.alarms.arn]
-}
-
 # --- Firehose delivery failures ---
 
 resource "aws_cloudwatch_metric_alarm" "firehose_delivery_failures" {
@@ -149,7 +132,6 @@ resource "aws_cloudwatch_dashboard" "main" {
           metrics = [
             ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.ingest.function_name],
             ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.api.function_name],
-            ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.bedrock_sql.function_name],
           ]
           stat   = "Sum"
           period = 300

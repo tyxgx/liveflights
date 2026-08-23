@@ -83,12 +83,6 @@ variable "adsb_lol_retry_attempts" {
   default     = 2
 }
 
-variable "batch_chain_schedule_expression" {
-  description = "EventBridge Scheduler rate that starts the bronze->silver->gold Step Functions execution. Originally undeployed entirely (no schedule ever triggered it outside manual/one-off runs) until this was added at 10 minutes; bumped to 15 after a real run at Europe's data volume measured ~12.5 minutes end to end (with the transform Lambda's 900s timeout/2048MB memory bump) — 10 minutes was causing back-to-back executions to overlap."
-  type        = string
-  default     = "rate(15 minutes)"
-}
-
 variable "opensky_client_id" {
   description = "OAuth2 client ID for OpenSky (empty string = anonymous polling, same as local default)."
   type        = string
@@ -121,20 +115,8 @@ variable "log_retention_days" {
   default     = 7
 }
 
-variable "athena_query_scan_limit_bytes" {
-  description = "Per-query data-scan limit enforced by the Athena workgroup, as a cost guardrail."
-  type        = number
-  default     = 1073741824 # 1 GB
-}
-
 variable "github_repo" {
   description = "GitHub repo in 'owner/name' form, used to scope the OIDC trust policy for CI/CD. Leave empty to skip creating the OIDC role."
   type        = string
   default     = "tyxgx/liveflights"
-}
-
-variable "bedrock_model_id" {
-  description = "Bedrock model used for the text-to-SQL Lambda."
-  type        = string
-  default     = "anthropic.claude-3-haiku-20240307-v1:0"
 }

@@ -25,22 +25,6 @@ output "ecr_repository_url" {
   value = aws_ecr_repository.api.repository_url
 }
 
-output "glue_database" {
-  value = aws_glue_catalog_database.gold.name
-}
-
-output "athena_workgroup" {
-  value = aws_athena_workgroup.gold.name
-}
-
-output "step_function_arn" {
-  value = aws_sfn_state_machine.batch_chain.arn
-}
-
-output "dynamodb_table" {
-  value = aws_dynamodb_table.latest_state.name
-}
-
 output "github_actions_role_arn" {
   description = "Role for GitHub Actions OIDC — set as AWS_ROLE_ARN in repo secrets/vars."
   value       = var.github_repo != "" ? aws_iam_role.github_actions[0].arn : null

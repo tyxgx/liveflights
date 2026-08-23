@@ -33,6 +33,7 @@ resource "null_resource" "api_image" {
     app_hash          = filesha256("${path.module}/../../api/cloud/app.py")
     dockerfile_hash   = filesha256("${path.module}/../../api/cloud/Dockerfile")
     requirements_hash = filesha256("${path.module}/../../api/cloud/requirements.txt")
+    airlines_hash     = filesha256("${path.module}/../../streaming/utils/airlines.py")
   }
 
   provisioner "local-exec" {
@@ -77,11 +78,10 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE_NAME   = aws_dynamodb_table.latest_state.name
-      ATHENA_DATABASE       = aws_glue_catalog_database.gold.name
-      ATHENA_WORKGROUP      = aws_athena_workgroup.gold.name
-      LAKE_BUCKET           = aws_s3_bucket.lake.id
-      CORRIDOR_ARTIFACT_KEY = "models/corridors_v1.json"
+      # Live-data-only MVP: the api Lambda just reads two small S3 objects
+      # (live/latest.json, stats/hourly.json) and computes everything else
+      # on the fly — no DynamoDB/Athena/Glue dependency any more.
+      LAKE_BUCKET = aws_s3_bucket.lake.id
     }
   }
 
