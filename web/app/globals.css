@@ -87,3 +87,41 @@
     left 0.9s linear,
     top 0.9s linear;
 }
+
+/* Zoom control: dark-themed to match the rest of the UI (Leaflet's default
+   is a plain white square), and pushed down past the KPI panel's height —
+   every one of Leaflet's 4 corner presets is already covered by a floating
+   dashboard panel, so topleft + this offset lands it in the one open strip
+   on the left edge instead of colliding with the KPI cards. */
+.leaflet-top.leaflet-left {
+  margin-top: 168px;
+}
+
+.leaflet-control-zoom {
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+  overflow: hidden;
+}
+
+.leaflet-control-zoom a {
+  background-color: rgba(15, 20, 32, 0.85) !important;
+  backdrop-filter: blur(8px);
+  color: #e2e8f0 !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background-color: rgba(34, 211, 238, 0.15) !important;
+  color: #22d3ee !important;
+}
+
+.leaflet-control-zoom-in {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18) !important;
+}
+
+.proximity-tooltip {
+  background: #141a28 !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  font-size: 11px !important;
+}
