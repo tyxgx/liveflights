@@ -24,16 +24,17 @@ const TABS: { id: TabId; label: string }[] = [
 // through a grid cell doesn't reliably resolve and let the chart grow
 // unbounded (observed: ~41,000px tall, rendering nothing visible).
 // Fixed pixel heights at each level avoid that entirely.
-const PANEL_HEIGHT = 280;
-const HEADER_HEIGHT = 68;
-const LABEL_HEIGHT = 30;
-const CHART_HEIGHT = PANEL_HEIGHT - HEADER_HEIGHT - LABEL_HEIGHT - 24; // minus p-3 padding
+const PANEL_HEIGHT = 300;
+const HEADER_HEIGHT = 76; // PanelHeader + the tab strip below it
+const LABEL_HEIGHT = 34; // tile title + subtitle
+const TILE_PADDING = 32; // p-4 top+bottom
+const CHART_HEIGHT = PANEL_HEIGHT - HEADER_HEIGHT - LABEL_HEIGHT - TILE_PADDING;
 
 function Tile({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
-    <div className="p-3">
+    <div className="p-4">
       <p className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">{title}</p>
-      <p className="mb-1.5 text-[10px] leading-snug text-ink-faint">{subtitle}</p>
+      <p className="mb-2 mt-0.5 text-[10px] leading-snug text-ink-faint">{subtitle}</p>
       <div style={{ height: CHART_HEIGHT }}>{children}</div>
     </div>
   );
@@ -71,12 +72,12 @@ export function ChartsPanel({
           </button>
         }
       />
-      <div className="flex items-center gap-1 border-b border-border px-3 py-1.5">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-2">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
+            className={`rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors ${
               tab === t.id
                 ? "bg-accent-cyan/15 text-accent-cyan"
                 : "text-ink-muted hover:bg-white/[0.05] hover:text-ink"

@@ -54,7 +54,7 @@ function Kpi({
   accent?: boolean;
 }) {
   return (
-    <div className="flex items-start gap-2.5 px-4 py-3">
+    <div className="flex items-start gap-3 px-5 py-4">
       <svg
         width="16"
         height="16"
@@ -64,7 +64,7 @@ function Kpi({
       >
         {ICONS[icon]}
       </svg>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1.5">
         <span className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
           {label}
         </span>
@@ -87,7 +87,7 @@ export function KpiPanel() {
       {loading && !data ? (
         <div className="grid grid-cols-4 divide-x divide-border">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="px-4 py-3">
+            <div key={i} className="px-5 py-4">
               <Skeleton className="mb-2 h-3 w-16" />
               <Skeleton className="h-6 w-12" />
             </div>

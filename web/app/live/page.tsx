@@ -149,7 +149,7 @@ export default function DashboardPage() {
           column (not two independently-positioned absolute panels with a
           guessed pixel gap) so a taller layer-toggle panel can never
           overlap the feed below it. */}
-      <div className="pointer-events-none absolute bottom-4 right-4 top-4 z-[1000] flex flex-col gap-3">
+      <div className="pointer-events-none absolute bottom-4 right-4 top-4 z-[1000] flex flex-col gap-4">
         <div className="pointer-events-auto flex-shrink-0">
           <LayerControls
             regionId={regionId}

@@ -8,11 +8,11 @@ import type { LiveFlight } from "@/types/api";
 
 function Row({ flight, value }: { flight: LiveFlight; value: string }) {
   return (
-    <div className="flex items-center justify-between border-b border-border/60 py-1 text-[12px] last:border-0">
+    <div className="flex items-center justify-between border-b border-border/60 py-1.5 text-[12px] last:border-0">
       <span className="truncate font-mono text-ink">
         {flight.callsign?.trim() || flight.icao24}
       </span>
-      <span className="ml-2 flex-shrink-0 font-mono tabular-nums text-ink-muted">{value}</span>
+      <span className="ml-3 flex-shrink-0 font-mono tabular-nums text-ink-muted">{value}</span>
     </div>
   );
 }
@@ -27,9 +27,9 @@ export function Leaderboards({ flights }: { flights: LiveFlight[] }) {
   if (flights.length === 0) return <EmptyState message="Waiting for live data…" />;
 
   return (
-    <div className="grid h-full grid-cols-2 gap-4">
+    <div className="grid h-full grid-cols-2 gap-6">
       <div>
-        <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-ink-faint">
+        <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-ink-faint">
           Fastest right now
         </p>
         {fastest.map((f) => (
@@ -37,7 +37,7 @@ export function Leaderboards({ flights }: { flights: LiveFlight[] }) {
         ))}
       </div>
       <div>
-        <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-ink-faint">
+        <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-ink-faint">
           Highest right now
         </p>
         {highest.map((f) => (

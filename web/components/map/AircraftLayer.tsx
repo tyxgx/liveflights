@@ -64,11 +64,11 @@ function popupHtml(f: LiveFlight, anomaly?: AnomalyEvent): string {
   }
   return `
     <div style="font-family: var(--font-jetbrains, monospace); font-size: 11px; min-width: 170px;">
-      <div style="font-weight:600; font-size:12px; margin-bottom:6px; color:#e2e8f0;">${f.icao24}</div>
+      <div style="font-weight:600; font-size:12px; margin-bottom:8px; color:#e2e8f0;">${f.icao24}</div>
       ${rows
         .map(
           ([label, value]) =>
-            `<div style="display:flex; justify-content:space-between; gap:12px; padding:1px 0; color:#a3adc2;">
+            `<div style="display:flex; justify-content:space-between; gap:12px; padding:2.5px 0; color:#a3adc2;">
                <span>${label}</span><span style="color:#e2e8f0;">${value}</span>
              </div>`,
         )
