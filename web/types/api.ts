@@ -14,6 +14,7 @@ export interface LiveFlight {
   on_ground: boolean;
   time_position: number | null;
   source: string | null;
+  squawk?: string | null;
   // Departure is a fact once matched (a ground->airborne transition against
   // a known airport); predicted_arrival/eta are always an estimate — ADS-B
   // carries no flight-plan data, see docs/architecture.md. All optional:

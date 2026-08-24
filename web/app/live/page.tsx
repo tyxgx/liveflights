@@ -12,8 +12,10 @@ import { CloudStatusStrip } from "@/components/panels/CloudStatusStrip";
 import { AnomalyFeed } from "@/components/panels/AnomalyFeed";
 import { ChartsPanel } from "@/components/panels/ChartsPanel";
 import { LayerControls } from "@/components/panels/LayerControls";
+import { EmergencyBanner } from "@/components/panels/EmergencyBanner";
 import { Skeleton } from "@/components/ui/States";
 import { REGIONS, defaultRegion, type RegionId } from "@/lib/regions";
+import { getEmergencySquawks } from "@/lib/flightInsights";
 import type { AnomalyEvent, LiveFlight, TrajectoryResponse } from "@/types/api";
 
 // Leaflet touches `window` at import time — importing it during Next.js SSR
@@ -39,6 +41,8 @@ export default function DashboardPage() {
   const [regionId, setRegionId] = useState<RegionId>(defaultRegion());
   const [showAircraft, setShowAircraft] = useState(true);
   const [showCorridors, setShowCorridors] = useState(true);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showProximity, setShowProximity] = useState(false);
   const [anomaliesOnly, setAnomaliesOnly] = useState(false);
   const [corridorLimit, setCorridorLimit] = useState(20);
 
@@ -61,6 +65,8 @@ export default function DashboardPage() {
     () => (corridorsData?.corridors ?? []).slice(0, corridorLimit),
     [corridorsData, corridorLimit],
   );
+
+  const emergencies = useMemo(() => getEmergencySquawks(flights), [flights]);
 
   const selectAircraft = useCallback((flight: LiveFlight) => {
     setSelectedIcao24(flight.icao24);
@@ -101,6 +107,8 @@ export default function DashboardPage() {
           corridors={visibleCorridors}
           showAircraft={showAircraft}
           showCorridors={showCorridors}
+          showHeatmap={showHeatmap}
+          showProximity={showProximity}
           anomaliesOnly={anomaliesOnly}
           anomalyByIcao={anomalyByIcao}
           selectedIcao24={selectedIcao24}
@@ -110,12 +118,21 @@ export default function DashboardPage() {
         />
       </div>
 
+      <EmergencyBanner emergencies={emergencies} />
+
       {/* Top-left: KPI cards + pipeline health strip underneath.
           z-[1000]+ is required: Leaflet's internal panes use z-index up to
           700, and neither <main> nor the map wrapper establishes its own
           stacking context, so without an explicit z-index here these
           floating panels render BEHIND the map regardless of DOM order. */}
       <div className="pointer-events-none absolute left-4 top-4 z-[1000] flex flex-col">
+        <a
+          href="/index.html"
+          className="glass-panel pointer-events-auto mb-2 flex w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium text-ink-muted transition-colors hover:text-accent-cyan"
+        >
+          <span className="text-sm leading-none">←</span>
+          <span className="font-mono">liveflights</span>
+        </a>
         <div className="pointer-events-auto">
           <KpiPanel />
         </div>
@@ -141,6 +158,10 @@ export default function DashboardPage() {
             onToggleAircraft={() => setShowAircraft((v) => !v)}
             showCorridors={showCorridors}
             onToggleCorridors={() => setShowCorridors((v) => !v)}
+            showHeatmap={showHeatmap}
+            onToggleHeatmap={() => setShowHeatmap((v) => !v)}
+            showProximity={showProximity}
+            onToggleProximity={() => setShowProximity((v) => !v)}
             anomaliesOnly={anomaliesOnly}
             onToggleAnomaliesOnly={() => setAnomaliesOnly((v) => !v)}
             corridorLimit={corridorLimit}

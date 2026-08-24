@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import { useMap } from "react-leaflet";
 import { altitudeColor, formatAltitude, formatSpeed, metersToFeet } from "@/lib/format";
+import { EMERGENCY_SQUAWKS, possibleMilitaryLabel } from "@/lib/flightInsights";
 import type { AnomalyEvent, LiveFlight } from "@/types/api";
 
 // Recognizable top-down aircraft silhouette (narrow fuselage, wide main
@@ -50,6 +51,16 @@ function popupHtml(f: LiveFlight, anomaly?: AnomalyEvent): string {
   }
   if (f.eta_minutes != null) {
     rows.push(["ETA (est.)", `${Math.round(f.eta_minutes)} min`]);
+  }
+  // Best-effort only — see lib/militaryRanges.ts for why this is a hint,
+  // not a verified fact.
+  const military = possibleMilitaryLabel(f.icao24);
+  if (military) {
+    rows.push(["Possibly military", `${military} (unverified)`]);
+  }
+  const emergencyMeaning = f.squawk ? EMERGENCY_SQUAWKS[f.squawk] : undefined;
+  if (emergencyMeaning) {
+    rows.unshift(["⚠ Squawk", `${f.squawk} — ${emergencyMeaning}`]);
   }
   return `
     <div style="font-family: var(--font-jetbrains, monospace); font-size: 11px; min-width: 170px;">
@@ -98,7 +109,8 @@ export function AircraftLayer({
 
       const anomaly = anomalyByIcao.get(f.icao24);
       const isAnomaly = Boolean(anomaly);
-      const color = isAnomaly ? "#f43f5e" : altitudeColor(metersToFeet(f.baro_altitude));
+      const isEmergency = Boolean(f.squawk && EMERGENCY_SQUAWKS[f.squawk]);
+      const color = isAnomaly || isEmergency ? "#f43f5e" : altitudeColor(metersToFeet(f.baro_altitude));
       const rotation = f.true_track ?? 0;
       const isSelected = f.icao24 === selectedIcao24;
 
@@ -133,7 +145,7 @@ export function AircraftLayer({
         el.classList.toggle("outline-2", isSelected);
         el.classList.toggle("outline-accent-cyan", isSelected);
         el.classList.toggle("rounded-full", isSelected);
-        el.classList.toggle("animate-pulse-ring", isAnomaly);
+        el.classList.toggle("animate-pulse-ring", isAnomaly || isEmergency);
         el.style.zIndex = isSelected ? "1000" : "";
       }
     }

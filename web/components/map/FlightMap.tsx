@@ -1,12 +1,14 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
-import { MapContainer, TileLayer } from "react-leaflet";
+import { MapContainer, TileLayer, ZoomControl } from "react-leaflet";
 import { AircraftLayer } from "@/components/map/AircraftLayer";
 import { CorridorLayer } from "@/components/map/CorridorLayer";
 import { GhostTrailLayer } from "@/components/map/GhostTrailLayer";
 import { FlyToController } from "@/components/map/FlyToController";
 import { RegionController } from "@/components/map/RegionController";
+import { DensityHeatLayer } from "@/components/map/DensityHeatLayer";
+import { ProximityLayer } from "@/components/map/ProximityLayer";
 import type { RegionConfig } from "@/lib/regions";
 import type { AnomalyEvent, Corridor, LiveFlight, TrajectoryResponse } from "@/types/api";
 
@@ -22,6 +24,8 @@ export interface FlightMapProps {
   corridors: Corridor[];
   showAircraft: boolean;
   showCorridors: boolean;
+  showHeatmap: boolean;
+  showProximity: boolean;
   anomaliesOnly: boolean;
   anomalyByIcao: Map<string, AnomalyEvent>;
   selectedIcao24: string | null;
@@ -38,6 +42,8 @@ export default function FlightMap({
   corridors,
   showAircraft,
   showCorridors,
+  showHeatmap,
+  showProximity,
   anomaliesOnly,
   anomalyByIcao,
   selectedIcao24,
@@ -58,8 +64,18 @@ export default function FlightMap({
       attributionControl={true}
       preferCanvas
     >
+      {/* Default zoomControl is disabled on MapContainer above and re-added
+          here — every one of Leaflet's 4 corner presets is already covered
+          by a floating panel (KPI top-left, layer/anomaly column right,
+          Insights bottom), so this uses topleft with a CSS push-down
+          (globals.css: .leaflet-top.leaflet-left) to land in the one
+          genuinely open strip: the left edge, below the KPI cluster and
+          above the Insights panel. */}
+      <ZoomControl position="topleft" />
       <TileLayer url={DARK_TILE_URL} attribution={DARK_TILE_ATTRIBUTION} />
+      {showHeatmap && <DensityHeatLayer flights={flights} />}
       {showCorridors && <CorridorLayer corridors={corridors} />}
+      {showProximity && <ProximityLayer flights={flights} />}
       {showAircraft && (
         <AircraftLayer
           flights={visibleFlights}

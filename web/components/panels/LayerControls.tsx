@@ -11,6 +11,10 @@ interface Props {
   onToggleAircraft: () => void;
   showCorridors: boolean;
   onToggleCorridors: () => void;
+  showHeatmap: boolean;
+  onToggleHeatmap: () => void;
+  showProximity: boolean;
+  onToggleProximity: () => void;
   anomaliesOnly: boolean;
   onToggleAnomaliesOnly: () => void;
   corridorLimit: number;
@@ -41,6 +45,10 @@ export function LayerControls({
   onToggleAircraft,
   showCorridors,
   onToggleCorridors,
+  showHeatmap,
+  onToggleHeatmap,
+  showProximity,
+  onToggleProximity,
   anomaliesOnly,
   onToggleAnomaliesOnly,
   corridorLimit,
@@ -68,8 +76,15 @@ export function LayerControls({
       <div className="flex flex-col items-start gap-1">
         <Toggle label="Aircraft" active={showAircraft} onClick={onToggleAircraft} />
         <Toggle label="Corridors" active={showCorridors} onClick={onToggleCorridors} />
+        <Toggle label="Density heatmap" active={showHeatmap} onClick={onToggleHeatmap} />
+        <Toggle label="Proximity lines" active={showProximity} onClick={onToggleProximity} />
         <Toggle label="Anomalies only" active={anomaliesOnly} onClick={onToggleAnomaliesOnly} />
       </div>
+      {showProximity && (
+        <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">
+          Lines connect aircraft within ~3nm and ~1,000ft of each other right now — geometry only, not a real ATC-grade conflict alert.
+        </p>
+      )}
 
       {showCorridors && (
         <div className="mt-3">
