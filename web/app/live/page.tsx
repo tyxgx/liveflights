@@ -14,7 +14,7 @@ import { ChartsPanel } from "@/components/panels/ChartsPanel";
 import { LayerControls } from "@/components/panels/LayerControls";
 import { EmergencyBanner } from "@/components/panels/EmergencyBanner";
 import { Skeleton } from "@/components/ui/States";
-import { REGIONS, defaultRegion, type RegionId } from "@/lib/regions";
+import { REGIONS, defaultRegion } from "@/lib/regions";
 import { getEmergencySquawks } from "@/lib/flightInsights";
 import type { AnomalyEvent, LiveFlight, TrajectoryResponse } from "@/types/api";
 
@@ -38,7 +38,9 @@ export default function DashboardPage() {
   const { data: corridorsData } = usePolledData(() => api.corridors(200), 120000);
   const { data: anomaliesData } = usePolledData(() => api.anomalies(1, 100), 15000);
 
-  const [regionId, setRegionId] = useState<RegionId>(defaultRegion());
+  // Only one region is ever ingested by this cloud deployment (Europe) —
+  // no state needed since there's nothing to switch to. See lib/regions.ts.
+  const regionId = defaultRegion();
   const [showAircraft, setShowAircraft] = useState(true);
   const [showCorridors, setShowCorridors] = useState(true);
   const [showHeatmap, setShowHeatmap] = useState(false);
@@ -153,7 +155,6 @@ export default function DashboardPage() {
         <div className="pointer-events-auto flex-shrink-0">
           <LayerControls
             regionId={regionId}
-            onRegionChange={setRegionId}
             showAircraft={showAircraft}
             onToggleAircraft={() => setShowAircraft((v) => !v)}
             showCorridors={showCorridors}

@@ -6,7 +6,6 @@ import { REGIONS, type RegionId } from "@/lib/regions";
 
 interface Props {
   regionId: RegionId;
-  onRegionChange: (region: RegionId) => void;
   showAircraft: boolean;
   onToggleAircraft: () => void;
   showCorridors: boolean;
@@ -46,7 +45,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export function LayerControls({
   regionId,
-  onRegionChange,
   showAircraft,
   onToggleAircraft,
   showCorridors,
@@ -71,17 +69,8 @@ export function LayerControls({
     // scrolling its own content. See app/live/page.tsx for the column.
     <Panel className="flex max-h-[55vh] w-[250px] flex-col overflow-hidden">
       <div className="overflow-y-auto p-4">
-        <SectionLabel>Region</SectionLabel>
-        <div className="flex flex-wrap gap-2">
-          {Object.values(REGIONS).map((r) => (
-            <Toggle
-              key={r.id}
-              label={r.label}
-              active={r.id === regionId}
-              onClick={() => onRegionChange(r.id)}
-            />
-          ))}
-        </div>
+        <SectionLabel>Coverage</SectionLabel>
+        <p className="text-[11px] font-medium text-ink">{REGIONS[regionId].label}</p>
 
         <div className="mt-4">
           <SectionLabel>Layers</SectionLabel>
