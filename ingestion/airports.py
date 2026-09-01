@@ -41,6 +41,19 @@ AIRPORTS_EUROPE: list[Airport] = [
     Airport("HEL", "Finland", 60.3172, 24.9633),
     Airport("DUB", "Ireland", 53.4213, -6.2701),
     Airport("LIS", "Portugal", 38.7813, -9.1359),
+    # Added 2026-08-31: the original 20 had a real hole across the Baltic
+    # states and interior Balkans -- easternmost/southeasternmost coverage
+    # was WAW/VIE, nothing between there and Turkey. Corridors in that area
+    # had no major airport to snap to even once the new
+    # adsb_lol_points entries (infra/terraform/variables.tf) start
+    # collecting data there. See ml/corridors.py-derived corridor-discovery
+    # docs for the snapping heuristic these feed.
+    Airport("RIX", "Latvia", 56.9236, 23.9711),
+    Airport("VNO", "Lithuania", 54.6341, 25.2858),
+    Airport("TLL", "Estonia", 59.4133, 24.8328),
+    Airport("OTP", "Romania", 44.5711, 26.0850),
+    Airport("SOF", "Bulgaria", 42.6952, 23.4062),
+    Airport("BEG", "Serbia", 44.8184, 20.3091),
 ]
 
 # A spread of major US airports (both coasts + interior hubs) so the "us"

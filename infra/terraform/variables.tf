@@ -62,6 +62,12 @@ variable "adsb_lol_points" {
     { lat = 42.0, lon = 12.5, dist = 250 }, # Italy
     { lat = 50.5, lon = 22.0, dist = 250 }, # Poland / Eastern Europe
     { lat = 40.0, lon = 22.0, dist = 250 }, # Balkans / Greece
+    # Added 2026-08-31: a per-country distance check against the original
+    # 8 points (haversine from each country's rough centroid to its
+    # nearest point) found two real gaps outside every 250nm circle --
+    # not a redundant point, each closes a specific hole:
+    { lat = 57.5, lon = 25.0, dist = 250 }, # Baltic states (EE/LV/LT) -- ~540-610km from every existing point
+    { lat = 44.5, lon = 20.5, dist = 250 }, # Balkans interior (RS/BA/SI/RO/BG) -- the old "Balkans/Greece" point only reached Greece/Albania
   ]
 }
 

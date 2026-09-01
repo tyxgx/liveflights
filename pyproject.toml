@@ -36,6 +36,7 @@ ml = [
   "matplotlib>=3.9",
   "psycopg2-binary>=2.9",
   "boto3>=1.35",
+  "duckdb>=1.1",
 ]
 api = [
   "fastapi>=0.115",

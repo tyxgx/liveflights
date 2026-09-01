@@ -121,6 +121,17 @@ export interface Corridor {
   altitude_p90_ft: number;
   member_count: number;
   polyline: [number, number][];
+  // [start, end] IATA codes, each nullable. A nearest-major-airport-ahead
+  // match against the corridor's own polyline end, NOT a matched flight
+  // plan -- ADS-B carries no route data, see docs/architecture.md. Most
+  // small/low-member corridors far from any hub won't have either end
+  // populated, and that's the honest answer, not missing data.
+  airports?: [string | null, string | null];
+  // Set only when neither end of `polyline` snapped to an airport but the
+  // corridor's own centroid sits right on top of one (a wide hub-area
+  // cluster whose ends point away from the hub in both directions) --
+  // see ml/scratch/train_all.py's HUB_SNAP_MAX_KM.
+  hub_airport?: string | null;
 }
 
 export interface CorridorsResponse {

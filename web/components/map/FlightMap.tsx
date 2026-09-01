@@ -3,6 +3,7 @@
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, ZoomControl } from "react-leaflet";
 import { AircraftLayer } from "@/components/map/AircraftLayer";
+import { AirportLayer } from "@/components/map/AirportLayer";
 import { CorridorLayer } from "@/components/map/CorridorLayer";
 import { GhostTrailLayer } from "@/components/map/GhostTrailLayer";
 import { FlyToController } from "@/components/map/FlyToController";
@@ -74,6 +75,7 @@ export default function FlightMap({
       <ZoomControl position="topleft" />
       <TileLayer url={DARK_TILE_URL} attribution={DARK_TILE_ATTRIBUTION} />
       {showHeatmap && <DensityHeatLayer flights={flights} />}
+      {showCorridors && <AirportLayer />}
       {showCorridors && <CorridorLayer corridors={corridors} />}
       {showProximity && <ProximityLayer flights={flights} />}
       {showAircraft && (

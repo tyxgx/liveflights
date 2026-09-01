@@ -102,15 +102,22 @@ export function LayerControls({
                 ML is paused on this deployment — corridor discovery isn&apos;t running.
               </p>
             ) : (
-              <input
-                type="range"
-                min={5}
-                max={Math.max(totalCorridors, 5)}
-                step={5}
-                value={corridorLimit}
-                onChange={(e) => onCorridorLimitChange(Number(e.target.value))}
-                className="w-full accent-accent-cyan"
-              />
+              <>
+                <input
+                  type="range"
+                  min={5}
+                  max={Math.max(totalCorridors, 5)}
+                  step={5}
+                  value={corridorLimit}
+                  onChange={(e) => onCorridorLimitChange(Number(e.target.value))}
+                  className="w-full accent-accent-cyan"
+                />
+                <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">
+                  Yellow dots are major airports. A corridor end labeled with one is a
+                  nearest-airport-ahead match, not a real flight plan — ADS-B carries no route
+                  data.
+                </p>
+              </>
             )}
           </div>
         )}

@@ -72,6 +72,24 @@
   color: #7d8aa3 !important;
 }
 
+/* Airport IATA labels (AirportLayer) -- small, permanent, no arrow/box
+   chrome so a cluster of 20 doesn't look like 20 popups. */
+.airport-label {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: #fbbf24 !important;
+  font-size: 10px !important;
+  font-weight: 600;
+  padding: 0 !important;
+  text-shadow:
+    0 0 3px #0a0e16,
+    0 0 3px #0a0e16;
+}
+.airport-label::before {
+  display: none !important;
+}
+
 .leaflet-control-attribution {
   background: rgba(10, 14, 22, 0.6) !important;
   color: #7d8aa3 !important;

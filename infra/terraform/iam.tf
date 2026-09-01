@@ -103,9 +103,13 @@ data "aws_iam_policy_document" "lambda_api_policy" {
     # Read-only: the live snapshot + the small rolling hourly-stats file.
     # Every stat the API serves is computed on the fly from these, in
     # Python, in the Lambda itself — no Athena/Glue query round-trip.
+    # models/* added when ML (corridors/anomalies/forecast) resumed as small
+    # static artifacts (corridors.json, anomaly_threshold.txt,
+    # forecast_gbr.joblib) — same read-only, no-warehouse philosophy, just
+    # a few more tiny S3 objects.
     sid       = "LiveStateRead"
     actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.lake.arn}/live/*", "${aws_s3_bucket.lake.arn}/stats/*"]
+    resources = ["${aws_s3_bucket.lake.arn}/live/*", "${aws_s3_bucket.lake.arn}/stats/*", "${aws_s3_bucket.lake.arn}/models/*"]
   }
   statement {
     # Without ListBucket, a GetObject on a *missing* key (e.g. stats/hourly.json

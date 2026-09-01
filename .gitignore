@@ -67,3 +67,9 @@ infra/terraform/.terraform.lock.hcl
 # Terraform plan files — build artifacts, can contain unredacted sensitive vars
 infra/terraform/*.tfplan
 infra/terraform/tfplan.out
+
+# Local-only ML scratch artifacts (regenerable model binaries/plots/test outputs) -
+# the scripts that produce them are committed, the outputs aren't.
+ml/scratch/artifacts/
+ml/scratch/__pycache__/
+web/tsconfig.tsbuildinfo
