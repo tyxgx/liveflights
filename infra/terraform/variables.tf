@@ -68,6 +68,12 @@ variable "adsb_lol_points" {
     # not a redundant point, each closes a specific hole:
     { lat = 57.5, lon = 25.0, dist = 250 }, # Baltic states (EE/LV/LT) -- ~540-610km from every existing point
     { lat = 44.5, lon = 20.5, dist = 250 }, # Balkans interior (RS/BA/SI/RO/BG) -- the old "Balkans/Greece" point only reached Greece/Albania
+    # Added 2026-09-02: same per-country haversine check applied to the
+    # Spain-France border -- Toulouse sits 717km from France/Benelux and
+    # 570km from Iberia, both outside every 250nm (463km) circle. This
+    # point covers Toulouse (80km), Bordeaux (189km), Zaragoza (216km),
+    # Barcelona (253km), Bilbao (275km), and Marseille (396km).
+    { lat = 43.3, lon = 0.5, dist = 250 }, # Southern France / Pyrenees / N.E. Spain
   ]
 }
 

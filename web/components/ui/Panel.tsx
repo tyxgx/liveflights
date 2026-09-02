@@ -10,7 +10,7 @@ export function Panel({
   style?: CSSProperties;
 }) {
   return (
-    <div className={`glass-panel rounded-lg shadow-panel ${className}`} style={style}>
+    <div className={`glass-panel rounded-xl shadow-panel ${className}`} style={style}>
       {children}
     </div>
   );

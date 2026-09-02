@@ -1,6 +1,5 @@
 "use client";
 
-import { Panel } from "@/components/ui/Panel";
 import { ALTITUDE_BANDS } from "@/lib/format";
 import { REGIONS, type RegionId } from "@/lib/regions";
 
@@ -26,7 +25,7 @@ function Toggle({ label, active, onClick }: { label: string; active: boolean; on
   return (
     <button
       onClick={onClick}
-      className={`rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors ${
+      className={`press rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors ${
         active
           ? "bg-accent-cyan/15 text-accent-cyan"
           : "bg-white/[0.03] text-ink-muted hover:bg-white/[0.06] hover:text-ink"
@@ -61,18 +60,15 @@ export function LayerControls({
   mlPaused,
 }: Props) {
   return (
-    // Capped + internally scrollable: this panel's content (region +
-    // layers + altitude legend, plus conditional corridor/proximity notes)
-    // can get taller than short viewports, and it sits above the Anomaly
-    // Feed in a shared-height flex column — without a cap, a long content
-    // state pushes the feed almost entirely off-screen instead of just
-    // scrolling its own content. See app/live/page.tsx for the column.
-    <Panel className="flex max-h-[55vh] w-[250px] flex-col overflow-hidden">
-      <div className="overflow-y-auto p-4">
+    // Top half of the shared left rail (AnomalyFeed docks below it, see
+    // app/live/page.tsx) -- sized to its own content, not the full sidebar
+    // height, so the anomaly feed underneath gets the remaining space.
+    <div className="flex-shrink-0 border-b border-border">
+      <div className="max-h-[60vh] overflow-y-auto p-5">
         <SectionLabel>Coverage</SectionLabel>
-        <p className="text-[11px] font-medium text-ink">{REGIONS[regionId].label}</p>
+        <p className="text-[11px] text-ink">{REGIONS[regionId].label}</p>
 
-        <div className="mt-4">
+        <div className="mt-6">
           <SectionLabel>Layers</SectionLabel>
           <div className="flex flex-wrap gap-2">
             <Toggle label="Aircraft" active={showAircraft} onClick={onToggleAircraft} />
@@ -82,7 +78,7 @@ export function LayerControls({
             <Toggle label="Anomalies only" active={anomaliesOnly} onClick={onToggleAnomaliesOnly} />
           </div>
           {showProximity && (
-            <p className="mt-2.5 text-[10px] leading-relaxed text-ink-faint">
+            <p className="mt-3 text-[10px] leading-relaxed text-ink-faint">
               Lines connect aircraft within ~3nm and ~1,000ft of each other right now — geometry
               only, not a real ATC-grade conflict alert.
             </p>
@@ -90,8 +86,8 @@ export function LayerControls({
         </div>
 
         {showCorridors && (
-          <div className="mt-4 border-t border-border pt-3">
-            <div className="mb-1.5 flex items-center justify-between text-[10px] text-ink-faint">
+          <div className="mt-6">
+            <div className="mb-2 flex items-center justify-between text-[10px] text-ink-faint">
               <span>Corridors shown</span>
               <span className="font-mono tabular-nums">
                 {corridorLimit} / {totalCorridors}
@@ -112,7 +108,7 @@ export function LayerControls({
                   onChange={(e) => onCorridorLimitChange(Number(e.target.value))}
                   className="w-full accent-accent-cyan"
                 />
-                <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">
+                <p className="mt-2.5 text-[10px] leading-relaxed text-ink-faint">
                   Yellow dots are major airports. A corridor end labeled with one is a
                   nearest-airport-ahead match, not a real flight plan — ADS-B carries no route
                   data.
@@ -122,7 +118,7 @@ export function LayerControls({
           </div>
         )}
 
-        <div className="mt-4 border-t border-border pt-3">
+        <div className="mt-6">
           <SectionLabel>Altitude</SectionLabel>
           <div className="flex flex-wrap gap-x-3 gap-y-1.5">
             {ALTITUDE_BANDS.map((b) => (
@@ -138,6 +134,6 @@ export function LayerControls({
           </div>
         </div>
       </div>
-    </Panel>
+    </div>
   );
 }

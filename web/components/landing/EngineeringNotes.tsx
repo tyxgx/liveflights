@@ -31,11 +31,11 @@ const NOTES: Note[] = [
       "Bounded concurrency, a small stagger between request submissions, and a retry-with-backoff budget per point — tuned against the actual failure rate observed in CloudWatch, not a guess at safe numbers.",
   },
   {
-    title: "A clustering bug that only showed up at scale",
+    title: "A clustering bug that quietly got worse as the fix aged",
     problem:
-      "An earlier ML pass (route-corridor discovery via DBSCAN) fit one model across the whole coverage area — spanning thousands of kilometers once expanded past a single small region. One cluster absorbed over 90% of all points; the algorithm wasn't wrong, the input geography was too spread out for one fit to mean anything.",
+      "Route-corridor discovery (DBSCAN over ADS-B headings) had two compounding bugs: raw compass heading fed straight into a distance metric (so 359° and 1° look maximally far apart), and one fixed neighborhood radius applied across a ~700km grid cell — together they collapsed the whole map down to 26 sparse, disconnected corridors, one holding 23% of all traffic.",
     fix:
-      "Split the fit per geographic grid cell instead of one global pass — the distribution flattened out to a plausible spread with no single corridor holding more than ~20% of points. (This ML layer is currently paused — see the note below — but the fix is intact in the codebase.)",
+      "Switched to sin/cos-encoded heading and a per-cell, data-driven radius (k-distance knee instead of a fixed constant) — 26 corridors became 1,150, largest-corridor share dropped from 23% to 3.6%. Corridor endpoints are now also snapped to the nearest real airport when one plausibly lies ahead, rendered as a labeled marker on the map.",
   },
 ];
 
@@ -71,11 +71,10 @@ export function EngineeringNotes() {
 
       <Reveal delay={300}>
         <p className="mt-10 max-w-2xl text-[12px] leading-relaxed text-ink-faint">
-          <span className="font-medium text-warn/80">Currently paused:</span> corridor discovery,
-          anomaly detection, and per-aircraft trajectory prediction were all built and verified working
-          against live data, but are switched off in the deployed stack right now — this build focuses
-          on the live-data pipeline and dashboards. The code and the cost-bug fix above both remain in
-          the repository.
+          <span className="font-medium text-warn/80">Currently paused:</span> per-aircraft
+          trajectory prediction (departure/destination/ETA) relied on two DynamoDB tables removed
+          in the cost-emergency rebuild above — the code for it still exists but isn't running.
+          Corridor discovery and anomaly detection (flagged against those corridors) both run live.
         </p>
       </Reveal>
     </section>

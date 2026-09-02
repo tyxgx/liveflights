@@ -55,20 +55,22 @@ function Kpi({
 }) {
   return (
     <div className="flex items-start gap-3 px-5 py-4">
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        className={`mt-0.5 flex-shrink-0 ${accent ? "text-warn" : "text-ink-faint"}`}
-        aria-hidden="true"
-      >
-        {ICONS[icon]}
-      </svg>
+      <span className={`icon-chip mt-0.5 h-8 w-8 flex-shrink-0 ${accent ? "is-accent" : ""}`}>
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          className={accent ? "text-warn" : "text-accent-cyan"}
+          aria-hidden="true"
+        >
+          {ICONS[icon]}
+        </svg>
+      </span>
       <div className="flex flex-col gap-1.5">
         <span className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
           {label}
         </span>
-        <span className="font-mono text-2xl font-semibold leading-none tabular-nums text-ink">
+        <span className="font-mono text-[26px] font-semibold leading-none tabular-nums text-ink">
           {value}
           {unit && <span className="ml-1 text-sm font-normal text-ink-muted">{unit}</span>}
         </span>

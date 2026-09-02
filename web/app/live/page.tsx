@@ -6,9 +6,7 @@ import { api, WS_URL } from "@/lib/api";
 import { usePolledData } from "@/hooks/usePolledData";
 import { useFlightsWebSocket } from "@/hooks/useFlightsWebSocket";
 import { useFlightsPolling } from "@/hooks/useFlightsPolling";
-import { KpiPanel } from "@/components/panels/KpiPanel";
-import { PipelineHealthStrip } from "@/components/panels/PipelineHealthStrip";
-import { CloudStatusStrip } from "@/components/panels/CloudStatusStrip";
+import { TopBar } from "@/components/panels/TopBar";
 import { AnomalyFeed } from "@/components/panels/AnomalyFeed";
 import { ChartsPanel } from "@/components/panels/ChartsPanel";
 import { LayerControls } from "@/components/panels/LayerControls";
@@ -101,58 +99,23 @@ export default function DashboardPage() {
   );
 
   return (
-    <main className="relative h-screen w-screen overflow-hidden bg-base">
-      <div className="absolute inset-0">
-        <FlightMap
-          region={REGIONS[regionId]}
-          flights={flights}
-          corridors={visibleCorridors}
-          showAircraft={showAircraft}
-          showCorridors={showCorridors}
-          showHeatmap={showHeatmap}
-          showProximity={showProximity}
-          anomaliesOnly={anomaliesOnly}
-          anomalyByIcao={anomalyByIcao}
-          selectedIcao24={selectedIcao24}
-          onSelectFlight={selectAircraft}
-          flyToTarget={flyToTarget}
-          trajectory={trajectory}
-        />
-      </div>
+    // Docked app-shell instead of floating cards over a full-bleed map: a
+    // top instrument bar, one left rail stacking input controls above the
+    // anomaly feed, and a bottom drawer for analytics -- the map fills
+    // exactly the remaining rectangle rather than sitting underneath
+    // everything with z-[1000] panels layered on top. No absolute-
+    // positioning / z-index juggling needed since every panel is a real
+    // sibling in normal flex flow.
+    <main className="flex h-screen w-screen flex-col overflow-hidden bg-base">
+      <TopBar pollStatus={wsStatus} flights={flights} lastUpdatedAt={lastMessageAt} />
 
-      <EmergencyBanner emergencies={emergencies} />
-
-      {/* Top-left: KPI cards + pipeline health strip underneath.
-          z-[1000]+ is required: Leaflet's internal panes use z-index up to
-          700, and neither <main> nor the map wrapper establishes its own
-          stacking context, so without an explicit z-index here these
-          floating panels render BEHIND the map regardless of DOM order. */}
-      <div className="pointer-events-none absolute left-4 top-4 z-[1000] flex flex-col">
-        <a
-          href="/index.html"
-          className="glass-panel pointer-events-auto mb-2 flex w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium text-ink-muted transition-colors hover:text-accent-cyan"
-        >
-          <span className="text-sm leading-none">←</span>
-          <span className="font-mono">liveflights</span>
-        </a>
-        <div className="pointer-events-auto">
-          <KpiPanel />
-        </div>
-        <div className="pointer-events-auto -mt-px">
-          {CLOUD_MODE ? (
-            <CloudStatusStrip pollStatus={wsStatus} flights={flights} lastUpdatedAt={lastMessageAt} />
-          ) : (
-            <PipelineHealthStrip wsStatus={wsStatus} liveFlightCount={flights.length} />
-          )}
-        </div>
-      </div>
-
-      {/* Right side: layer toggles + anomaly feed, stacked in a real flex
-          column (not two independently-positioned absolute panels with a
-          guessed pixel gap) so a taller layer-toggle panel can never
-          overlap the feed below it. */}
-      <div className="pointer-events-none absolute bottom-4 right-4 top-4 z-[1000] flex flex-col gap-4">
-        <div className="pointer-events-auto flex-shrink-0">
+      <div className="relative flex min-h-0 flex-1">
+        {/* Shared left rail: layer controls on top (content-sized, own
+            scroll if it overflows), anomaly feed docked below it and
+            taking the remaining height -- moved here from a separate
+            right-hand rail so the map reads as the visual center of the
+            page instead of being boxed in on both sides. */}
+        <div className="flex w-[260px] flex-shrink-0 flex-col overflow-hidden border-r border-border">
           <LayerControls
             regionId={regionId}
             showAircraft={showAircraft}
@@ -170,8 +133,6 @@ export default function DashboardPage() {
             totalCorridors={corridorsData?.total_corridors ?? 0}
             mlPaused={corridorsData?.ml_paused ?? false}
           />
-        </div>
-        <div className="pointer-events-auto min-h-0 flex-1">
           <AnomalyFeed
             onSelect={selectAnomaly}
             collapsed={anomalyFeedCollapsed}
@@ -179,15 +140,33 @@ export default function DashboardPage() {
             mlPaused={anomaliesData?.ml_paused ?? false}
           />
         </div>
-      </div>
 
-      {/* Bottom: charts panel */}
-      <div className="pointer-events-auto absolute bottom-4 left-4 right-[360px] z-[1000]">
-        <ChartsPanel
-          flights={flights}
-          collapsed={chartsCollapsed}
-          onToggleCollapse={() => setChartsCollapsed((v) => !v)}
-        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="relative min-h-0 flex-1">
+            <FlightMap
+              region={REGIONS[regionId]}
+              flights={flights}
+              corridors={visibleCorridors}
+              showAircraft={showAircraft}
+              showCorridors={showCorridors}
+              showHeatmap={showHeatmap}
+              showProximity={showProximity}
+              anomaliesOnly={anomaliesOnly}
+              anomalyByIcao={anomalyByIcao}
+              selectedIcao24={selectedIcao24}
+              onSelectFlight={selectAircraft}
+              flyToTarget={flyToTarget}
+              trajectory={trajectory}
+            />
+            <EmergencyBanner emergencies={emergencies} />
+          </div>
+
+          <ChartsPanel
+            flights={flights}
+            collapsed={chartsCollapsed}
+            onToggleCollapse={() => setChartsCollapsed((v) => !v)}
+          />
+        </div>
       </div>
     </main>
   );

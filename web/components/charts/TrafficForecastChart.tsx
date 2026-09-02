@@ -71,7 +71,7 @@ export function TrafficForecastChart() {
         </p>
       )}
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={rows} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+        <ComposedChart data={rows} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" vertical={false} />
           <XAxis dataKey="label" tick={{ fill: "#7d8aa3", fontSize: 10 }} axisLine={{ stroke: "rgba(148,163,184,0.15)" }} tickLine={false} />
           <YAxis tick={{ fill: "#7d8aa3", fontSize: 10 }} axisLine={false} tickLine={false} width={36} />

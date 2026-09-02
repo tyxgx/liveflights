@@ -26,10 +26,10 @@ export function AltitudeHistogram({ flights }: { flights: LiveFlight[] }) {
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={rows} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+      <BarChart data={rows} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" vertical={false} />
         <XAxis dataKey="label" tick={{ fill: "#7d8aa3", fontSize: 9 }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fill: "#7d8aa3", fontSize: 10 }} axisLine={false} tickLine={false} width={28} />
+        <YAxis tick={{ fill: "#7d8aa3", fontSize: 10 }} axisLine={false} tickLine={false} width={34} />
         <Tooltip
           contentStyle={{
             background: "#141a28",

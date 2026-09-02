@@ -8,6 +8,7 @@ import { CorridorLayer } from "@/components/map/CorridorLayer";
 import { GhostTrailLayer } from "@/components/map/GhostTrailLayer";
 import { FlyToController } from "@/components/map/FlyToController";
 import { RegionController } from "@/components/map/RegionController";
+import { MapResizeController } from "@/components/map/MapResizeController";
 import { DensityHeatLayer } from "@/components/map/DensityHeatLayer";
 import { ProximityLayer } from "@/components/map/ProximityLayer";
 import type { RegionConfig } from "@/lib/regions";
@@ -89,6 +90,7 @@ export default function FlightMap({
       <GhostTrailLayer trajectory={trajectory} />
       <FlyToController target={flyToTarget} />
       <RegionController region={region} />
+      <MapResizeController />
     </MapContainer>
   );
 }

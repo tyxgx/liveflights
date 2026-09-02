@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { TrafficForecastChart } from "@/components/charts/TrafficForecastChart";
 import { CountriesBar } from "@/components/charts/CountriesBar";
 import { AltitudeHistogram } from "@/components/charts/AltitudeHistogram";
@@ -24,18 +23,29 @@ const TABS: { id: TabId; label: string }[] = [
 // through a grid cell doesn't reliably resolve and let the chart grow
 // unbounded (observed: ~41,000px tall, rendering nothing visible).
 // Fixed pixel heights at each level avoid that entirely.
-const PANEL_HEIGHT = 300;
-const HEADER_HEIGHT = 76; // PanelHeader + the tab strip below it
+const PANEL_HEIGHT = 320;
+const HEADER_HEIGHT = 48; // single tab + collapse row (merged from two rows in the first layout pass)
 const LABEL_HEIGHT = 34; // tile title + subtitle
 const TILE_PADDING = 32; // p-4 top+bottom
 const CHART_HEIGHT = PANEL_HEIGHT - HEADER_HEIGHT - LABEL_HEIGHT - TILE_PADDING;
 
 function Tile({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  // min-w-0 matters here: a CSS grid track defaults to min-width: auto, so
+  // if the chart inside (Recharts' ResponsiveContainer, in particular)
+  // ever reports an intrinsic width wider than this tile's fr-share, the
+  // grid track — and the whole grid, and the flex column it sits in —
+  // grows to fit it instead of clipping the chart down to size. At wide
+  // window widths that pushed the total layout past the viewport, and
+  // since the app shell has overflow-hidden, the overflow was silently
+  // clipped rather than scrollable: the right-hand tile (and its title/
+  // subtitle text) just got cut off with no visual indication why.
   return (
-    <div className="p-4">
-      <p className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">{title}</p>
-      <p className="mb-2 mt-0.5 text-[10px] leading-snug text-ink-faint">{subtitle}</p>
-      <div style={{ height: CHART_HEIGHT }}>{children}</div>
+    <div className="min-w-0 overflow-hidden p-4">
+      <p className="truncate text-[10px] font-medium uppercase tracking-wider text-ink-muted">{title}</p>
+      <p className="mb-2 mt-0.5 truncate text-[10px] leading-snug text-ink-faint">{subtitle}</p>
+      <div className="min-w-0" style={{ height: CHART_HEIGHT }}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -55,42 +65,37 @@ export function ChartsPanel({
     return (
       <button
         onClick={onToggleCollapse}
-        className="glass-panel flex h-9 w-full items-center justify-center rounded-lg text-[11px] uppercase tracking-wider text-ink-muted hover:text-ink"
+        className="press flex h-9 w-full flex-shrink-0 items-center justify-center border-t border-border text-[11px] uppercase tracking-wider text-ink-faint transition-colors hover:text-ink"
       >
-        Show insights ▲
+        Show insights
       </button>
     );
   }
 
   return (
-    <Panel className="w-full" style={{ height: PANEL_HEIGHT }}>
-      <PanelHeader
-        title="Insights"
-        right={
-          <button onClick={onToggleCollapse} className="text-ink-muted hover:text-ink" title="Collapse">
-            Hide ▼
-          </button>
-        }
-      />
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+    <div className="w-full flex-shrink-0 border-t border-border" style={{ height: PANEL_HEIGHT }}>
+      <div className="flex items-center gap-1 px-5 pb-2 pt-3">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors ${
+            className={`press rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors ${
               tab === t.id
                 ? "bg-accent-cyan/15 text-accent-cyan"
-                : "text-ink-muted hover:bg-white/[0.05] hover:text-ink"
+                : "text-ink-faint hover:bg-white/[0.05] hover:text-ink"
             }`}
           >
             {t.label}
           </button>
         ))}
+        <button onClick={onToggleCollapse} className="press ml-auto text-ink-faint transition-colors hover:text-ink" title="Collapse">
+          Hide
+        </button>
       </div>
 
       {tab === "traffic" && (
         <div
-          className="grid grid-cols-3 divide-x divide-border"
+          className="grid min-w-0 grid-cols-3 divide-x divide-border"
           style={{ height: PANEL_HEIGHT - HEADER_HEIGHT }}
         >
           <Tile title="Traffic by hour" subtitle="Last 24h volume, + 6h forecast where available.">
@@ -107,7 +112,7 @@ export function ChartsPanel({
 
       {tab === "composition" && (
         <div
-          className="grid grid-cols-3 divide-x divide-border"
+          className="grid min-w-0 grid-cols-3 divide-x divide-border"
           style={{ height: PANEL_HEIGHT - HEADER_HEIGHT }}
         >
           <Tile title="Flight mix" subtitle="Climbing, cruising, descending, or still on the ground.">
@@ -124,7 +129,7 @@ export function ChartsPanel({
 
       {tab === "flow" && (
         <div
-          className="grid grid-cols-2 divide-x divide-border"
+          className="grid min-w-0 grid-cols-2 divide-x divide-border"
           style={{ height: PANEL_HEIGHT - HEADER_HEIGHT }}
         >
           <Tile title="Traffic flow" subtitle="Which direction airborne traffic is heading, right now — not ML, just headings grouped by compass point.">
@@ -135,6 +140,6 @@ export function ChartsPanel({
           </Tile>
         </div>
       )}
-    </Panel>
+    </div>
   );
 }

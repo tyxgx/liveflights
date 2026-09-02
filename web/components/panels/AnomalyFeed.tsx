@@ -4,14 +4,19 @@ import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { isSyntheticTestRecord, timeAgo } from "@/lib/format";
 import { usePolledData } from "@/hooks/usePolledData";
-import { PanelHeader } from "@/components/ui/Panel";
 import { Skeleton, ErrorState, EmptyState } from "@/components/ui/States";
 import type { AnomalyEvent } from "@/types/api";
 
-function scoreColor(score: number): string {
+function severityDotClass(score: number): string {
+  if (score >= 0.85) return "bg-danger";
+  if (score >= 0.65) return "bg-warn";
+  return "bg-ink-faint";
+}
+
+function severityTextClass(score: number): string {
   if (score >= 0.85) return "text-danger";
   if (score >= 0.65) return "text-warn";
-  return "text-ink-muted";
+  return "text-ink-faint";
 }
 
 export function AnomalyFeed({
@@ -40,44 +45,38 @@ export function AnomalyFeed({
     return (
       <button
         onClick={onToggleCollapse}
-        className="glass-panel flex h-full w-9 flex-col items-center gap-2 rounded-lg py-3 text-ink-muted hover:text-ink"
-        title="Expand anomaly feed"
+        className="press flex h-9 w-full flex-shrink-0 items-center justify-center text-[11px] uppercase tracking-wider text-ink-faint transition-colors hover:text-ink"
       >
-        <span className="text-[10px] font-medium uppercase tracking-wider [writing-mode:vertical-rl]">
-          Anomalies
-        </span>
+        Show anomalies
       </button>
     );
   }
 
   return (
-    <div className="glass-panel flex h-full w-[340px] flex-col rounded-lg">
-      <PanelHeader
-        title="Anomaly Feed"
-        subtitle={data ? `${events.length} shown of ${data.total} total` : undefined}
-        right={
-          <button onClick={onToggleCollapse} className="text-ink-muted hover:text-ink" title="Collapse">
-            ‹
-          </button>
-        }
-      />
-      <div className="flex items-center justify-between px-4 py-2 text-[10px] text-ink-faint">
-        <span>Newest first</span>
-        <label className="flex items-center gap-1.5 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={includeTestRecords}
-            onChange={(e) => setIncludeTestRecords(e.target.checked)}
-            className="h-3 w-3 accent-accent-cyan"
-          />
-          include test records
-        </label>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex flex-shrink-0 items-baseline justify-between gap-3 px-5 pb-1 pt-4">
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-[11px] uppercase tracking-wider text-ink-faint">Anomalies</h2>
+          {data && <span className="font-mono text-[10px] text-ink-faint">{events.length}/{data.total}</span>}
+        </div>
+        <button onClick={onToggleCollapse} className="press text-ink-faint transition-colors hover:text-ink" title="Collapse">
+          ⌄
+        </button>
       </div>
+      <label className="flex items-center gap-1.5 px-5 pb-4 pt-2 text-[10px] text-ink-faint cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={includeTestRecords}
+          onChange={(e) => setIncludeTestRecords(e.target.checked)}
+          className="h-3 w-3 accent-accent-cyan"
+        />
+        include test records
+      </label>
       <div className="flex-1 overflow-y-auto">
         {loading && !data ? (
-          <div className="space-y-3 p-3">
+          <div className="space-y-4 px-5 py-2">
             {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-16 w-full" />
+              <Skeleton key={i} className="h-10 w-full" />
             ))}
           </div>
         ) : error && !data ? (
@@ -95,25 +94,30 @@ export function AnomalyFeed({
               <li key={`${event.icao24}-${event.ingest_ts}-${i}`}>
                 <button
                   onClick={() => onSelect(event)}
-                  className="w-full border-b border-border px-4 py-3 text-left hover:bg-white/[0.03]"
+                  className="press flex w-full items-start gap-3 px-5 py-3 text-left transition-colors hover:bg-white/[0.03]"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-sm font-medium text-ink">
-                      {event.callsign?.trim() || event.icao24}
-                    </span>
-                    <span className={`font-mono text-xs tabular-nums ${scoreColor(event.anomaly_score)}`}>
-                      {event.anomaly_score.toFixed(2)}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-ink-muted">{event.anomaly_type.replace(/,/g, " · ")}</p>
-                  <div className="mt-1.5 flex items-center justify-between text-[10px] text-ink-faint">
-                    <span>
-                      {event.nearest_corridor_id !== null
-                        ? `corridor #${event.nearest_corridor_id}`
-                        : "no corridor"}
-                      {event.origin_country ? ` · ${event.origin_country}` : ""}
-                    </span>
-                    <span>{timeAgo(event.ingest_ts)}</span>
+                  <span className={`mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full ${severityDotClass(event.anomaly_score)}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate font-mono text-[13px] font-medium text-ink">
+                        {event.callsign?.trim() || event.icao24}
+                      </span>
+                      <span className={`flex-shrink-0 font-mono text-[11px] tabular-nums ${severityTextClass(event.anomaly_score)}`}>
+                        {event.anomaly_score.toFixed(2)}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 truncate text-[11px] text-ink-muted">
+                      {event.anomaly_type.replace(/,/g, " · ")}
+                    </p>
+                    <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-ink-faint">
+                      <span className="truncate">
+                        {event.nearest_corridor_id !== null
+                          ? `#${event.nearest_corridor_id}`
+                          : "no corridor"}
+                        {event.origin_country ? ` · ${event.origin_country}` : ""}
+                      </span>
+                      <span className="flex-shrink-0">{timeAgo(event.ingest_ts)}</span>
+                    </div>
                   </div>
                 </button>
               </li>
