@@ -33,7 +33,11 @@ export default function DashboardPage() {
   const ws = useFlightsWebSocket(!CLOUD_MODE);
   const polling = useFlightsPolling(CLOUD_MODE);
   const { flights, status: wsStatus, lastMessageAt } = CLOUD_MODE ? polling : ws;
-  const { data: corridorsData } = usePolledData(() => api.corridors(200), 120000);
+  // 5000 comfortably covers the full corridor set (1,312 as of the
+  // 2026-09-09 retrain) -- always fetch and show all of them, no
+  // client-side cap. See LayerControls for the read-only count display
+  // that replaced the old "corridors shown" slider.
+  const { data: corridorsData } = usePolledData(() => api.corridors(5000), 120000);
   const { data: anomaliesData } = usePolledData(() => api.anomalies(1, 100), 15000);
 
   // Only one region is ever ingested by this cloud deployment (Europe) —
@@ -44,7 +48,6 @@ export default function DashboardPage() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showProximity, setShowProximity] = useState(false);
   const [anomaliesOnly, setAnomaliesOnly] = useState(false);
-  const [corridorLimit, setCorridorLimit] = useState(20);
 
   const [anomalyFeedCollapsed, setAnomalyFeedCollapsed] = useState(false);
   const [chartsCollapsed, setChartsCollapsed] = useState(false);
@@ -61,10 +64,7 @@ export default function DashboardPage() {
     return map;
   }, [anomaliesData]);
 
-  const visibleCorridors = useMemo(
-    () => (corridorsData?.corridors ?? []).slice(0, corridorLimit),
-    [corridorsData, corridorLimit],
-  );
+  const visibleCorridors = corridorsData?.corridors ?? [];
 
   const emergencies = useMemo(() => getEmergencySquawks(flights), [flights]);
 
@@ -128,8 +128,6 @@ export default function DashboardPage() {
             onToggleProximity={() => setShowProximity((v) => !v)}
             anomaliesOnly={anomaliesOnly}
             onToggleAnomaliesOnly={() => setAnomaliesOnly((v) => !v)}
-            corridorLimit={corridorLimit}
-            onCorridorLimitChange={setCorridorLimit}
             totalCorridors={corridorsData?.total_corridors ?? 0}
             mlPaused={corridorsData?.ml_paused ?? false}
           />

@@ -15,8 +15,6 @@ interface Props {
   onToggleProximity: () => void;
   anomaliesOnly: boolean;
   onToggleAnomaliesOnly: () => void;
-  corridorLimit: number;
-  onCorridorLimitChange: (n: number) => void;
   totalCorridors: number;
   mlPaused: boolean;
 }
@@ -54,8 +52,6 @@ export function LayerControls({
   onToggleProximity,
   anomaliesOnly,
   onToggleAnomaliesOnly,
-  corridorLimit,
-  onCorridorLimitChange,
   totalCorridors,
   mlPaused,
 }: Props) {
@@ -89,31 +85,18 @@ export function LayerControls({
           <div className="mt-6">
             <div className="mb-2 flex items-center justify-between text-[10px] text-ink-faint">
               <span>Corridors shown</span>
-              <span className="font-mono tabular-nums">
-                {corridorLimit} / {totalCorridors}
-              </span>
+              <span className="font-mono tabular-nums">{totalCorridors} (all)</span>
             </div>
             {mlPaused ? (
               <p className="text-[10px] leading-relaxed text-warn/80">
                 ML is paused on this deployment — corridor discovery isn&apos;t running.
               </p>
             ) : (
-              <>
-                <input
-                  type="range"
-                  min={5}
-                  max={Math.max(totalCorridors, 5)}
-                  step={5}
-                  value={corridorLimit}
-                  onChange={(e) => onCorridorLimitChange(Number(e.target.value))}
-                  className="w-full accent-accent-cyan"
-                />
-                <p className="mt-2.5 text-[10px] leading-relaxed text-ink-faint">
-                  Yellow dots are major airports. A corridor end labeled with one is a
-                  nearest-airport-ahead match, not a real flight plan — ADS-B carries no route
-                  data.
-                </p>
-              </>
+              <p className="text-[10px] leading-relaxed text-ink-faint">
+                Yellow dots are major airports. A corridor end labeled with one is a
+                nearest-airport-ahead match, not a real flight plan — ADS-B carries no route
+                data.
+              </p>
             )}
           </div>
         )}
