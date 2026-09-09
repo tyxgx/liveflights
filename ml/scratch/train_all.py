@@ -39,14 +39,25 @@ from sklearn.preprocessing import StandardScaler
 from ingestion.airports import AIRPORTS_EUROPE
 
 DATA_DAYS = [
-    "2026-08-21",
-    "2026-08-23",
-    "2026-08-24",
-    "2026-08-25",
-    "2026-08-26",
-    "2026-08-27",
-    "2026-08-28",
-]  # full available local backup (2026-08-22 missing -- not in the S3 backup)
+    "2026-09-03",
+    "2026-09-04",
+    "2026-09-05",
+    "2026-09-06",
+    "2026-09-07",
+    "2026-09-08",
+    "2026-09-09",
+]  # 2026-08-21..28 were already used for the live 2026-09-01 retrain
+   # (the 1,150-corridor artifact currently deployed) -- deliberately NOT
+   # re-included here so this run reflects genuinely newer traffic instead
+   # of re-processing the same days. Sized to match the original 7-day/
+   # 845MB/5,460-file run that completed fine on this 8GB machine --
+   # 2026-09-09's attempt at the full 19-day/2.6GB/17.7K-file backup
+   # swap-thrashed badly (47min elapsed, only ~17min actual CPU time,
+   # 9.8/11.2GB swap in use) and was killed before completion; the
+   # in-between 12-day/1.7GB/12.3K-file option was also skipped as too
+   # close to that same risk. If this 7-day run works cleanly, the next
+   # step is trying progressively more days rather than jumping straight
+   # back to the full backup.
 BRONZE_ROOT = "data/s3-backup-2026-08-28/bronze"
 OUT_DIR = "ml/scratch/artifacts"
 
