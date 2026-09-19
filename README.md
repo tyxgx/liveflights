@@ -122,7 +122,7 @@ liveflights/
 
 ## Roadmap
 
-- **Airflow orchestration** (`hourly_compaction`, `daily_dbt`, `daily_ml_retrain`, `daily_quality_drift` DAGs) — **planned, not started**. `orchestration/dags/` and `orchestration/plugins/` are empty directories; there is no Airflow service in `docker-compose.yml`. Every stage currently runs as a manually-invoked process.
+- **Airflow orchestration** — **done**. Four DAGs in `orchestration/dags/` (`hourly_compaction`, `daily_dbt`, `daily_ml_retrain`, `daily_quality_drift`), running in a single LocalExecutor container built from `orchestration/Dockerfile`, wired into `docker-compose.yml` (`airflow`/`airflow-init` services). See docs/architecture.md.
 - **Serverless AWS deployment** — **done**, see [docs/aws-architecture.md](docs/aws-architecture.md). Built out of phase order relative to the original P8→P9 plan (Airflow was skipped in favor of standing up the cloud path first).
 - **Real OpenSky data in the cloud pipeline** — blocked, not scoped work: OpenSky blocks/throttles traffic from AWS IP ranges (see docs/aws-architecture.md), not something retries or IAM changes can fix from this side. A future path would need a non-AWS egress point (e.g. a small proxy on a non-cloud IP) in front of the ingest Lambda.
 - **CDN in front of the cloud dashboard** — `cloudfront:CreateDistribution` is currently blocked at the account level (see docs/aws-architecture.md); revisit once/if that restriction lifts.

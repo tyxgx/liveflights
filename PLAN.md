@@ -135,7 +135,7 @@ states everywhere. Must look portfolio-ready on first screenshot.
   promotion.
 - **P6** API: all endpoints + WebSocket + caching + metrics + pytest.
 - **P7** Frontend: full dashboard wired to the API.
-- **P8** Airflow: 4 DAGs, verify each runs green.
+- **P8** Airflow: 4 DAGs, verify each runs green. **Done** — see PROGRESS.md.
 - **P9** Ops: Terraform, GitHub Actions, Grafana dashboards, Evidently report.
 - **P10** Docs: README (mermaid architecture diagram, setup, screenshots
   placeholders, metrics table, tech stack list).

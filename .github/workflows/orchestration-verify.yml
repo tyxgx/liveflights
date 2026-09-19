@@ -1,0 +1,77 @@
+name: Orchestration verify
+
+# Manual only (workflow_dispatch). Brings up the local docker-compose stack on a free GitHub runner
+# (no AWS), seeds real simulated data through bronze -> silver, then runs each of
+# the 4 Airflow DAGs once and asserts every task reached `success`.
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Same logical date for every DAG so daily_dbt's ExternalTaskSensor finds
+      # daily_ml_retrain's run. Must be >= the DAGs' start_date (2026-09-18):
+      # earlier dates create a run with zero tasks that falsely reports success.
+      LOGICAL_DATE: "2026-09-18T15:00:00"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Prepare env
+        run: |
+          cp .env.example .env
+          uv sync --group streaming
+
+      - name: Build and start core services
+        run: |
+          docker compose build airflow
+          docker compose up -d postgres minio redpanda minio-init mlflow
+          docker compose up -d airflow
+          for i in $(seq 1 60); do
+            s=$(docker inspect -f '{{.State.Health.Status}}' liveflights-airflow 2>/dev/null || true)
+            [ "$s" = healthy ] && break
+            sleep 5
+          done
+          echo "airflow health: $s"
+          [ "$s" = healthy ]
+
+      - name: Seed data (producer -> bronze -> silver)
+        run: |
+          uv run python -m ingestion.producer --mode simulate --once
+          uv run --group streaming python -m streaming.jobs.bronze_stream --timeout-seconds 90
+          uv run --group streaming python -m streaming.jobs.silver_stream --timeout-seconds 120
+
+      - name: Run DAGs
+        run: |
+          set -x
+          for dag in hourly_compaction daily_ml_retrain daily_dbt daily_quality_drift; do
+            docker exec liveflights-airflow airflow dags test "$dag" "$LOGICAL_DATE" || true
+          done
+
+      - name: Assert every task succeeded
+        run: |
+          fail=0
+          for dag in hourly_compaction daily_ml_retrain daily_dbt daily_quality_drift; do
+            out=$(docker exec liveflights-airflow airflow tasks states-for-dag-run "$dag" "manual__${LOGICAL_DATE}+00:00")
+            echo "$out"
+            # dbt_docs_generate uses trigger_rule=all_done by design, ignore it.
+            bad=$(echo "$out" | grep -E '\| *(failed|upstream_failed|scheduled|queued|running|up_for_retry|None) *\|' | grep -v dbt_docs_generate || true)
+            tasks=$(echo "$out" | grep -c "$dag" || true)
+            if [ -n "$bad" ] || [ "$tasks" -eq 0 ]; then
+              echo "::error::$dag has failed or missing tasks"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --tail=80 airflow
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

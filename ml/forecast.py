@@ -20,6 +20,7 @@ from __future__ import annotations
 import io
 import logging
 import subprocess
+from pathlib import Path
 
 import joblib
 import mlflow
@@ -173,6 +174,7 @@ def run() -> dict:
         fig, ax = plt.subplots()
         importances.plot.barh(ax=ax)
         ax.set_title("Traffic forecast — feature importance (real DGCA training data)")
+        Path(settings.plots_dir).mkdir(parents=True, exist_ok=True)
         plot_path = f"{settings.plots_dir}/forecast_feature_importance.png"
         fig.savefig(plot_path, dpi=100, bbox_inches="tight")
         plt.close(fig)
