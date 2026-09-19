@@ -150,7 +150,7 @@ def _schema_drift(s3, columns: list[tuple[str, str, str]]) -> dict:
 def run() -> bool:
     """Returns True if every quality check passed."""
     logging.basicConfig(level="INFO", format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    engine = create_engine(settings.jdbc_url.replace("jdbc:", ""))
+    engine = create_engine(settings.database_url)
     s3 = _s3_client()
 
     columns = _list_columns(engine)
