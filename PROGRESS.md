@@ -1808,3 +1808,31 @@ have been made at any point in this project's history. See the READY TO
 COMMIT block below for the exact commands to initialize it and push to
 GitHub (per project rules, no git command has been run automatically).
 ```
+
+## P8 — Airflow orchestration (2026-09-19)
+
+Added `orchestration/` (custom Airflow 2.10 image, LocalExecutor, metadata in the
+existing Postgres) with 4 DAGs: `hourly_compaction` (Delta OPTIMIZE+VACUUM on
+silver/gold, then gold refresh), `daily_ml_retrain` (anomaly + forecast),
+`daily_dbt` (run, test, docs; waits on `retrain_anomaly` via ExternalTaskSensor
+because `stg_anomaly_events` reads `gold.anomaly_events`), and
+`daily_quality_drift` (gold-schema quality + schema-drift checks, JSON report to
+MinIO).
+
+**Verified** by the manual `Orchestration verify` GitHub Actions workflow
+(`.github/workflows/orchestration-verify.yml`, free runner, no AWS): compose
+stack up, simulated data seeded through bronze -> silver, each DAG run once via
+`airflow dags test`, then every task asserted `success` — **9/9 tasks green
+across all 4 DAGs** (run 35432826141).
+
+Real bugs found and fixed on the way: `compact.py` resolved the wrong
+filesystem (`Wrong FS s3a://` vs `file:///`); `ml/forecast.py` wrote a plot into
+`ml/plots/`, which `.dockerignore` excludes (dir now created before save);
+`daily_dbt` had no dependency on the ML DAG (fresh DB failed 9/11 models);
+`quality_checks.py` built its engine from `jdbc_url` (no credentials) instead of
+`database_url`. Also: `minio/*` images swapped to `quay.io/minio/*` (Docker Hub
+now rejects anonymous pulls).
+
+Gotcha: `airflow dags test` with a date before the DAG `start_date` creates a run
+with zero tasks and still reports success; the workflow pins a date after
+`start_date` and asserts task states explicitly.

@@ -1,13 +1,10 @@
 name: Orchestration verify
 
-# Manual only. Brings up the local docker-compose stack on a free GitHub runner
+# Manual only (workflow_dispatch). Brings up the local docker-compose stack on a free GitHub runner
 # (no AWS), seeds real simulated data through bronze -> silver, then runs each of
 # the 4 Airflow DAGs once and asserts every task reached `success`.
 on:
   workflow_dispatch:
-  # Temporary: lets the workflow run from this branch before it exists on main.
-  push:
-    branches: [airflow-orchestration]
 
 jobs:
   verify:
