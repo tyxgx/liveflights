@@ -292,7 +292,13 @@ def anomalies(page: int = 1, page_size: int = 50, flagged_only: bool = True) -> 
     total = len(events)
     start = (page - 1) * page_size
     page_events = events[start : start + page_size]
-    return {"total": total, "page": page, "page_size": page_size, "events": page_events, "ml_paused": False}
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "events": page_events,
+        "ml_paused": False,
+    }
 
 
 def _get_forecast_model():
@@ -324,7 +330,7 @@ def forecast_traffic(hours: int = 6) -> dict:
 
     counts = [h["flight_count"] for h in hist]
     last_hour = hist[-1]["hour"]  # ISO string, e.g. "2026-08-29T09:00:00Z"
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     cursor = datetime.fromisoformat(last_hour.replace("Z", "+00:00"))
 

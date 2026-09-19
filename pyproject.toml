@@ -56,6 +56,8 @@ api = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# One-off local experiment scripts, not shipped code.
+extend-exclude = ["ml/scratch"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
