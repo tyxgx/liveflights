@@ -7,7 +7,7 @@ Real-time flight intelligence platform: OpenSky/simulated flight data streamed t
 | | URL |
 |---|---|
 | Dashboard | https://liveflights-prod-site-922120357133.s3.us-east-1.amazonaws.com/index.html |
-| API | https://m9o2yg64dj.execute-api.us-east-1.amazonaws.com |
+| API | https://11ze3w650d.execute-api.us-east-1.amazonaws.com |
 
 See [docs/aws-architecture.md](docs/aws-architecture.md) for the cloud architecture, the account-restriction story, and why this deployment runs a different region (Europe) from the local default.
 

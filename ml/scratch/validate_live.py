@@ -12,7 +12,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-API_BASE = "https://m9o2yg64dj.execute-api.us-east-1.amazonaws.com"
+API_BASE = "https://11ze3w650d.execute-api.us-east-1.amazonaws.com"
 ARTIFACT_DIR = "ml/scratch/artifacts"
 
 
