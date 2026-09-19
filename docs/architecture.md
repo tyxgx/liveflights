@@ -32,7 +32,7 @@ flowchart LR
     MLF -. serves models .-> API
 ```
 
-Airflow orchestration (`hourly_compaction`, `daily_dbt`, `daily_ml_retrain`, `daily_quality_drift`) is planned but not yet implemented — see the Roadmap in the main README. Every stage above currently runs as a manually-invoked local process; MLflow tracking/registry and the medallion pipeline are fully built and verified.
+Airflow orchestration (P8) is implemented: four DAGs — `hourly_compaction` (Delta OPTIMIZE/VACUUM on silver+gold, then refresh gold), `daily_dbt` (`dbt run` → `dbt test` → `dbt docs generate`), `daily_ml_retrain` (retrain anomaly + forecast, conditional Production promotion), `daily_quality_drift` (row-count/null-rate checks + schema drift over `gold`, no Evidently — see `orchestration/quality_checks.py` for why) — running in a single LocalExecutor Airflow container built from `orchestration/Dockerfile`, reusing the same Postgres instance for its metadata DB. DAG source: `orchestration/dags/`. Bronze/silver streaming ingestion is intentionally *not* Airflow-managed — it's a continuous process, started manually (`uv run --group streaming python -m streaming.jobs.bronze_stream` / `silver_stream`), not a scheduled batch job.
 
 ## Data model
 
