@@ -33,8 +33,8 @@ export default function DashboardPage() {
   const ws = useFlightsWebSocket(!CLOUD_MODE);
   const polling = useFlightsPolling(CLOUD_MODE);
   const { flights, status: wsStatus, lastMessageAt } = CLOUD_MODE ? polling : ws;
-  // 5000 comfortably covers the full corridor set (1,312 as of the
-  // 2026-09-09 retrain) -- always fetch and show all of them, no
+  // 5000 comfortably covers the full corridor set (1,831 as of the
+  // 2026-09-21 retrain) -- always fetch and show all of them, no
   // client-side cap. See LayerControls for the read-only count display
   // that replaced the old "corridors shown" slider.
   const { data: corridorsData } = usePolledData(() => api.corridors(5000), 120000);
