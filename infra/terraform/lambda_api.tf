@@ -95,7 +95,14 @@ resource "aws_apigatewayv2_api" "api" {
   protocol_type = "HTTP"
 
   cors_configuration {
-    allow_origins = ["*"] # read-only, no-auth demo endpoints; tighten to the CloudFront domain if this becomes more than a demo
+    # Only the deployed dashboard (S3 REST + website endpoints) and local dev.
+    # CORS is browser-side hardening, not access control: the endpoints stay
+    # public read-only, and abuse is bounded by the stage throttle below.
+    allow_origins = [
+      "https://${aws_s3_bucket.site.bucket_regional_domain_name}",
+      "http://${aws_s3_bucket_website_configuration.site.website_endpoint}",
+      "http://localhost:3000",
+    ]
     allow_methods = ["GET", "OPTIONS"]
     allow_headers = ["content-type"]
     max_age       = 300
@@ -129,8 +136,8 @@ resource "aws_apigatewayv2_stage" "api" {
   # before it racks up a real Lambda/Athena bill from a traffic spike or
   # accidental loop.
   default_route_settings {
-    throttling_burst_limit = 20
-    throttling_rate_limit  = 10
+    throttling_burst_limit = 10
+    throttling_rate_limit  = 5
   }
 
   access_log_settings {

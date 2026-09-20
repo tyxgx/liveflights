@@ -38,27 +38,21 @@ from sklearn.preprocessing import StandardScaler
 
 from ingestion.airports import AIRPORTS_EUROPE
 
-DATA_DAYS = [
-    "2026-09-03",
-    "2026-09-04",
-    "2026-09-05",
-    "2026-09-06",
-    "2026-09-07",
-    "2026-09-08",
-    "2026-09-09",
-]  # 2026-08-21..28 were already used for the live 2026-09-01 retrain
-   # (the 1,150-corridor artifact currently deployed) -- deliberately NOT
-   # re-included here so this run reflects genuinely newer traffic instead
-   # of re-processing the same days. Sized to match the original 7-day/
-   # 845MB/5,460-file run that completed fine on this 8GB machine --
-   # 2026-09-09's attempt at the full 19-day/2.6GB/17.7K-file backup
-   # swap-thrashed badly (47min elapsed, only ~17min actual CPU time,
-   # 9.8/11.2GB swap in use) and was killed before completion; the
-   # in-between 12-day/1.7GB/12.3K-file option was also skipped as too
-   # close to that same risk. If this 7-day run works cleanly, the next
-   # step is trying progressively more days rather than jumping straight
-   # back to the full backup.
-BRONZE_ROOT = "data/s3-backup-2026-08-28/bronze"
+# 2026-09-21 rewrite: the loader is now memory-bounded. It reads ONE day at a
+# time through DuckDB and samples inside SQL, so only small samples ever reach
+# pandas -- the old version pulled every airborne row into one DataFrame,
+# which swap-thrashed this 8GB machine above ~845MB/5,460 files (2026-09-09).
+# That lets every available day train instead of a 7-day slice. The last
+# HOLDOUT_DAYS are excluded from training so ml/scratch/eval_holdout.py can
+# score old-vs-new artifacts on genuinely unseen days.
+BRONZE_ROOT = "data/s3-backup-2026-09-19/bronze"
+HOLDOUT_DAYS = ["2026-09-19", "2026-09-20"]
+MIN_FILES_PER_DAY = 100  # skip near-empty days (ingest outages)
+CRUISE_SAMPLE_PCT = 3.0  # of airborne cruise rows, per day (~1.8M over 30 days)
+PAIR_SAMPLE_PCT = 0.6  # of consecutive-poll pairs, per day
+ANOMALY_SAMPLE_PCT = 0.2  # of all airborne rows, per day
+MAX_CRUISE_ROWS = 2_000_000
+MAX_PAIRS = 400_000
 OUT_DIR = "ml/scratch/artifacts"
 
 CORRIDOR_CELL_SIZE_DEG = 3.0
@@ -92,7 +86,7 @@ HUB_SNAP_MAX_KM = 75.0
 
 os.makedirs(OUT_DIR, exist_ok=True)
 mlflow.set_tracking_uri(f"file:{os.path.abspath('ml/scratch/mlruns')}")
-mlflow.set_experiment("liveflights-fastpath-2026-08-28")
+mlflow.set_experiment("liveflights-fastpath-2026-09-21")
 
 
 def choose_eps_via_knee(scaled: np.ndarray, k: int) -> float:
@@ -206,37 +200,81 @@ def nearest_hub_airport(centroid_lat: float, centroid_lon: float) -> str | None:
     return best[0] if best else None
 
 
-def load_files():
-    files = []
-    for d in DATA_DAYS:
-        files += glob.glob(f"{BRONZE_ROOT}/ingest_date={d}/*/*.gz")
-    return files
+def training_days() -> list[str]:
+    days = []
+    for path in sorted(glob.glob(f"{BRONZE_ROOT}/ingest_date=*")):
+        day = os.path.basename(path).split("=")[1]
+        n_files = len(glob.glob(f"{path}/*/*.gz"))
+        if day in HOLDOUT_DAYS or n_files < MIN_FILES_PER_DAY:
+            continue
+        days.append(day)
+    return days
+
+
+DAY_SQL = """
+CREATE OR REPLACE TEMP TABLE day AS
+SELECT icao24, longitude AS lon, latitude AS lat, baro_altitude AS alt, velocity,
+       true_track AS heading, vertical_rate, CAST(ingest_ts AS TIMESTAMP) AS ts
+FROM read_json_auto(?, format='newline_delimited')
+WHERE on_ground = false
+  AND longitude IS NOT NULL AND latitude IS NOT NULL
+  AND velocity IS NOT NULL AND velocity BETWEEN 0 AND 420   -- ~1500km/h sanity cap
+  AND baro_altitude IS NOT NULL AND baro_altitude BETWEEN 0 AND 15550  -- ~51000ft cap
+"""
+
+
+def load_samples(days: list[str]) -> dict:
+    """One day at a time: load + clean in DuckDB, then pull back only the
+    sampled slices each model needs (cruise points, consecutive-poll pairs,
+    anomaly-calibration points, hourly distinct-flight counts)."""
+    con = duckdb.connect()
+    con.execute("SET memory_limit='2GB'")
+    con.execute("SET threads=4")
+    cruise, pairs, anomaly, hourly = [], [], [], []
+    airborne_rows = 0
+    for d in days:
+        files = glob.glob(f"{BRONZE_ROOT}/ingest_date={d}/*/*.gz")
+        con.execute(DAY_SQL, [files])
+        n = con.execute("SELECT count(*) FROM day").fetchone()[0]
+        airborne_rows += n
+        cruise.append(con.execute(
+            f"SELECT lat, lon, alt, heading FROM day WHERE alt > 3000 AND heading IS NOT NULL "
+            f"USING SAMPLE {CRUISE_SAMPLE_PCT} PERCENT (bernoulli, 42)").fetchdf())
+        pairs.append(con.execute(f"""
+            SELECT lat, lon, alt, velocity, heading, vertical_rate, dt_s, delta_lat, delta_lon
+            FROM (
+              SELECT *, lead(lat) OVER w - lat AS delta_lat, lead(lon) OVER w - lon AS delta_lon,
+                     epoch(lead(ts) OVER w) - epoch(ts) AS dt_s
+              FROM day WINDOW w AS (PARTITION BY icao24 ORDER BY ts)
+            )
+            WHERE dt_s > 30 AND dt_s < 180 AND heading IS NOT NULL AND vertical_rate IS NOT NULL
+              AND delta_lat IS NOT NULL AND delta_lon IS NOT NULL
+            USING SAMPLE {PAIR_SAMPLE_PCT} PERCENT (bernoulli, 42)""").fetchdf())
+        anomaly.append(con.execute(
+            f"SELECT lat, lon FROM day USING SAMPLE {ANOMALY_SAMPLE_PCT} PERCENT (bernoulli, 42)").fetchdf())
+        hourly.append(con.execute(
+            "SELECT date_trunc('hour', ts) AS ts, count(DISTINCT icao24) AS flight_count "
+            "FROM day GROUP BY 1").fetchdf())
+        print(f"[load] {d}: {n:>9,} airborne rows")
+    return {
+        "cruise": pd.concat(cruise, ignore_index=True),
+        "pairs": pd.concat(pairs, ignore_index=True),
+        "anomaly": pd.concat(anomaly, ignore_index=True),
+        "hourly": pd.concat(hourly, ignore_index=True),
+        "airborne_rows": airborne_rows,
+    }
 
 
 def main():
     t0 = time.time()
-    files = load_files()
-    print(f"[load] {len(files)} bronze files across {DATA_DAYS}")
-
-    con = duckdb.connect()
-
-    # ---- 1. Load + basic cleaning (airborne only, sane altitude/velocity) ----
-    df = con.execute(
-        """
-        SELECT icao24, callsign, longitude AS lon, latitude AS lat,
-               baro_altitude AS alt, velocity, true_track AS heading,
-               vertical_rate, squawk, on_ground, ingest_ts
-        FROM read_json_auto(?, format='newline_delimited')
-        WHERE on_ground = false
-          AND longitude IS NOT NULL AND latitude IS NOT NULL
-          AND velocity IS NOT NULL AND velocity BETWEEN 0 AND 420   -- ~1500km/h sanity cap
-          AND baro_altitude IS NOT NULL AND baro_altitude BETWEEN 0 AND 15550  -- ~51000ft cap
-        """,
-        [files],
-    ).fetchdf()
-    print(f"[load] {len(df):,} airborne rows in {time.time()-t0:.1f}s")
-
-    df["ingest_ts"] = pd.to_datetime(df["ingest_ts"], utc=True)
+    days = training_days()
+    print(f"[load] {len(days)} training days: {days[0]} .. {days[-1]} (holdout {HOLDOUT_DAYS})")
+    data = load_samples(days)
+    print(
+        f"[load] {data['airborne_rows']:,} airborne rows scanned -> "
+        f"{len(data['cruise']):,} cruise / {len(data['pairs']):,} pair / "
+        f"{len(data['anomaly']):,} anomaly samples in {time.time()-t0:.1f}s"
+    )
 
     # =====================================================================
     # MODEL 1: Corridor discovery (DBSCAN, per 3-degree grid cell)
@@ -264,9 +302,9 @@ def main():
     # matched flight plan (ADS-B carries no route data).
     print("\n=== Model 1: Corridors ===")
     t1 = time.time()
-    cruise = df[df["alt"] > 3000].dropna(subset=["lat", "lon", "heading"]).copy()
-    if len(cruise) > 800_000:
-        cruise = cruise.sample(800_000, random_state=42)
+    cruise = data["cruise"].dropna(subset=["lat", "lon", "heading"]).copy()
+    if len(cruise) > MAX_CRUISE_ROWS:
+        cruise = cruise.sample(MAX_CRUISE_ROWS, random_state=42)
 
     cruise["track_sin"] = np.sin(np.radians(cruise["heading"]))
     cruise["track_cos"] = np.cos(np.radians(cruise["heading"]))
@@ -357,20 +395,11 @@ def main():
     # =====================================================================
     print("\n=== Model 2: Trajectory-delta prediction ===")
     t2 = time.time()
-    df_sorted = df.sort_values(["icao24", "ingest_ts"])
-    df_sorted["next_lat"] = df_sorted.groupby("icao24")["lat"].shift(-1)
-    df_sorted["next_lon"] = df_sorted.groupby("icao24")["lon"].shift(-1)
-    df_sorted["next_ts"] = df_sorted.groupby("icao24")["ingest_ts"].shift(-1)
-    df_sorted["dt_s"] = (df_sorted["next_ts"] - df_sorted["ingest_ts"]).dt.total_seconds()
+    pairs = data["pairs"]
+    print(f"[traj] {len(pairs):,} sampled consecutive-poll pairs (dt 30-180s)")
 
-    # Keep consecutive-poll pairs only (~60s apart, allow some jitter/skip)
-    pairs = df_sorted[(df_sorted["dt_s"] > 30) & (df_sorted["dt_s"] < 180)].copy()
-    pairs["delta_lat"] = pairs["next_lat"] - pairs["lat"]
-    pairs["delta_lon"] = pairs["next_lon"] - pairs["lon"]
-    print(f"[traj] {len(pairs):,} consecutive-poll pairs (dt 30-180s)")
-
-    if len(pairs) > 300_000:
-        pairs = pairs.sample(300_000, random_state=42)
+    if len(pairs) > MAX_PAIRS:
+        pairs = pairs.sample(MAX_PAIRS, random_state=42)
 
     # dt_s is critical: the target (delta_lat/delta_lon) scales directly with
     # elapsed time between polls (30-180s range) -- the dead-reckoning
@@ -423,7 +452,7 @@ def main():
     t3 = time.time()
     if len(corridors_df):
         cent = corridors_df[["centroid_lat", "centroid_lon"]].to_numpy()
-        sample = df.sample(min(200_000, len(df)), random_state=42)
+        sample = data["anomaly"]
         pts = sample[["lat", "lon"]].to_numpy()
         # distance to nearest centroid (vectorized, chunked to bound memory)
         min_dist = np.full(len(pts), np.inf)
@@ -451,12 +480,13 @@ def main():
     # =====================================================================
     print("\n=== Model 4: Traffic forecast ===")
     t4 = time.time()
+    # An hour can straddle two ingest_date partitions -> take the larger count.
+    hourly = data["hourly"].groupby("ts", as_index=False)["flight_count"].max().sort_values("ts")
+    # Reindex to a complete hourly range so ingest outages become NaN (not
+    # fake zero-flight hours) and any row whose lag hour is missing drops out.
+    full_range = pd.date_range(hourly["ts"].min(), hourly["ts"].max(), freq="1h")
     hourly = (
-        df.set_index("ingest_ts")
-        .resample("1h")["icao24"]
-        .nunique()
-        .rename("flight_count")
-        .reset_index()
+        hourly.set_index("ts").reindex(full_range).rename_axis("ingest_ts").reset_index()
     )
     hourly["hour_of_day"] = hourly["ingest_ts"].dt.hour
     hourly["day_of_week"] = hourly["ingest_ts"].dt.dayofweek

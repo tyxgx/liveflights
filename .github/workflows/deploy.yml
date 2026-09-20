@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
     branches: [main]
 
@@ -39,3 +39,62 @@ jobs:
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run pytest
+
+  terraform:
+    # Static checks only: no AWS credentials, no plan/apply (see the note above
+    # the test job for why CI never applies infra).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive
+        working-directory: ${{ env.TF_WORKING_DIR }}
+      - run: terraform init -backend=false -input=false
+        working-directory: ${{ env.TF_WORKING_DIR }}
+      - run: terraform validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+  dbt:
+    # `dbt parse` compiles every model/test/ref without touching a database, so
+    # broken SQL/Jinja/refs fail here. The env vars are placeholders only.
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_USER: ci
+      POSTGRES_PASSWORD: ci
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --group dbt
+      - run: uv run --group dbt dbt parse --project-dir transform --profiles-dir transform
+
+  api-image:
+    # Build only (never pushed): catches a broken Dockerfile/requirements
+    # before it reaches the Lambda container image.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --platform linux/amd64 -f api/cloud/Dockerfile -t liveflights-api:ci .
+
+  audit:
+    # Python deps are a hard gate (clean today). The frontend report is
+    # informational: Next 14.x advisories need a Next 15 major upgrade and mostly
+    # target the Next *server*, which a static S3 export does not run
+    # (see docs/security.md).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv export --frozen --no-hashes --no-emit-project > /tmp/req.txt
+      - run: uvx pip-audit -r /tmp/req.txt --no-deps --disable-pip
+      - run: uvx pip-audit -r api/cloud/requirements.txt --no-deps --disable-pip
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Frontend audit (report only)
+        working-directory: web
+        continue-on-error: true
+        run: pnpm audit --prod --audit-level high
+

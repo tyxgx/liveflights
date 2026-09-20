@@ -7,15 +7,16 @@ Real-time flight intelligence platform: OpenSky/simulated flight data streamed t
 | | URL |
 |---|---|
 | Dashboard | https://liveflights-prod-site-922120357133.s3.us-east-1.amazonaws.com/index.html |
-| API | https://m9o2yg64dj.execute-api.us-east-1.amazonaws.com |
+| API | https://11ze3w650d.execute-api.us-east-1.amazonaws.com |
 
 See [docs/aws-architecture.md](docs/aws-architecture.md) for the cloud architecture, the account-restriction story, and why this deployment runs a different region (Europe) from the local default.
 
+[![CI](https://github.com/tyxgx/liveflights/actions/workflows/deploy.yml/badge.svg)](https://github.com/tyxgx/liveflights/actions/workflows/deploy.yml)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Spark](https://img.shields.io/badge/Spark-3.5.3-E25A1C?logo=apachespark&logoColor=white)
 ![Delta Lake](https://img.shields.io/badge/Delta_Lake-3.2.1-00ADD8?logo=delta&logoColor=white)
 ![dbt](https://img.shields.io/badge/dbt-1.8.9-FF694B?logo=dbt&logoColor=white)
-![Airflow](https://img.shields.io/badge/Airflow-planned-017CEE?logo=apacheairflow&logoColor=white)
+![Airflow](https://img.shields.io/badge/Airflow-4_DAGs-017CEE?logo=apacheairflow&logoColor=white)
 ![MLflow](https://img.shields.io/badge/MLflow-tracking%20%2B%20registry-0194E2?logo=mlflow&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-REST%20%2B%20WebSocket-009688?logo=fastapi&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white)
@@ -27,6 +28,23 @@ See [docs/aws-architecture.md](docs/aws-architecture.md) for the cloud architect
 A streaming lakehouse for live aircraft position data, built to demonstrate the full modern data + ML stack end to end: ingestion (real OpenSky API or a physically-simulated fleet), Kafka-compatible streaming (Redpanda), Spark Structured Streaming into a medallion Delta lakehouse, dbt marts, four purpose-built ML models, a FastAPI backend, and an ATC-style Next.js dashboard — plus a fully serverless AWS deployment of the same pipeline, running live under a $5/month budget.
 
 ![Full dashboard](docs/screenshots/dashboard_full.png)
+
+```mermaid
+flowchart LR
+    SRC["adsb.lol / OpenSky / simulator"] --> P["Producer + DLQ"]
+    P --> K[("Redpanda / Kafka")]
+    K --> B["Spark: bronze"] --> S["Spark: silver (Delta)"] --> G["Gold aggregates"]
+    G --> D["dbt marts + tests"]
+    S --> ML["ML: corridors, anomaly, forecast, trajectory"]
+    D --> API["FastAPI"]
+    ML --> API
+    API --> WEB["Next.js dashboard"]
+    AF["Airflow: 4 DAGs"] -. orchestrates .-> S
+    AF -. orchestrates .-> D
+    AF -. orchestrates .-> ML
+```
+
+**Cloud deployment (AWS, ~$1.5-2/month):** EventBridge Scheduler -> ingest Lambda -> S3 (`live/`, `stats/`) and Firehose archive; API Gateway -> API Lambda (container image) reads S3; the dashboard is a static export on S3. Infrastructure is Terraform.
 
 Full architecture diagram, data model, and region config: **[docs/architecture.md](docs/architecture.md)**.
 
@@ -130,3 +148,11 @@ liveflights/
 ## License
 
 [MIT](LICENSE)
+
+## Engineering docs
+
+- [Postmortems](docs/postmortems.md): two real cost incidents (a $155/month DynamoDB write pattern and ~$48 of usage hidden by account credits), root causes and guardrails.
+- [Security posture](docs/security.md): what is public on purpose, controls, and accepted risks.
+- [Cloud architecture](docs/aws-architecture.md) and [local architecture](docs/architecture.md).
+- CI runs lint, tests, `dbt parse`, `terraform fmt/validate`, an API image build and a dependency audit on every push. A manual workflow (`Orchestration verify`) brings up the full compose stack on a GitHub runner and runs all four Airflow DAGs.
+
