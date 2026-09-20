@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run pytest
@@ -66,7 +66,7 @@ jobs:
       POSTGRES_DB: ci
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync --group dbt
       - run: uv run --group dbt dbt parse --project-dir transform --profiles-dir transform
 
@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
       - run: uv export --frozen --no-hashes --no-emit-project > /tmp/req.txt
       - run: uvx pip-audit -r /tmp/req.txt --no-deps --disable-pip
       - run: uvx pip-audit -r api/cloud/requirements.txt --no-deps --disable-pip
