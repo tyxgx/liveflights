@@ -2,6 +2,23 @@
 
 **Design principle: rules catch physically impossible, ML catches contextually unusual.** Silver's `data_quality_flags` already threshold implausible speed, altitude, vertical rate, missing position, and emergency squawks — every state a point-wise anomaly model would learn to flag. The original plan called for an IsolationForest here; it was rejected as circular reasoning; training it on the same features `data_quality_flags` already thresholds would just rediscover those same rules with none of their interpretability and all of the training cost. The actual gap rules can't fill: a flight can be legal on every single dimension — plausible speed, altitude, vertical rate — and still be behaviorally strange: off the path everyone else takes between the same two points, against the flow of traffic, at an altitude nobody else uses on that route. That's a population-relative judgment, not a fixed bound, so it needs a model that has seen the population. That's what the four models below do.
 
+## Current live models (retrained 2026-09-21)
+
+The models serving the live Europe deployment are trained by `ml/scratch/train_all.py` on **real ADS-B data**: 28 days (2026-08-21 to 2026-09-18), ~72.5M airborne rows scanned. The loader reads one day at a time in DuckDB and samples inside SQL (cruise 3%, consecutive-poll pairs 0.6%, anomaly calibration 0.2%), so the whole run takes ~5 minutes on an 8GB laptop. The last two days (2026-09-19, 2026-09-20) are **held out** and never seen in training; `ml/scratch/eval_holdout.py` scores the previous artifacts (2026-09-09, 7 days of data) against the new ones on them.
+
+| on held-out days | previous (7 days) | current (28 days) |
+|---|---|---|
+| corridors | 1,312 | **1,831** |
+| cruise traffic within 25 km of a corridor | 94.7% | **96.5%** |
+| median distance to nearest corridor | 4.9 km | **4.2 km** |
+| hourly forecast MAE (mean count ~2,900) | 147 flights | **86 flights** |
+| next-position error vs dead reckoning | 65.2% better | 65.2% better (unchanged) |
+| anomaly threshold / flagged share | 0.842 deg / 2.9% | 0.741 deg / 3.2% |
+
+The forecast is trained on real hourly history now (a naive last-hour baseline scores MAE 568 on the same hours). Caveats: the trajectory model's latitude error is slightly worse than dead reckoning (longitude is far better), and the live dashboard does not serve the trajectory model. Coverage is measured against the corridor polylines themselves, so it says how well corridors describe real traffic, not that each corridor is a real airway.
+
+Everything below this section documents the earlier development history (India region, simulator data, synthetic forecast) and is kept as a record, not as the current state.
+
 ## Corridor discovery (DBSCAN)
 
 `ml/corridors.py` clusters scaled `latitude`, `longitude`, `sin(true_track)`, `cos(true_track)` — heading is included specifically so opposing traffic on the same lat/lon airway separates into two corridors instead of merging into one. Filtered to airborne, cruise-phase points. `eps` is chosen per fit via a k-distance elbow (max perpendicular distance from the line joining the sorted-distance curve's endpoints).
