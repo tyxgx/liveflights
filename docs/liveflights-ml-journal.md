@@ -1205,3 +1205,38 @@ ever existed locally, never committed. Fixed properly rather than as one dump:
   in `try(..., "missing-in-ci")` (verified both ways - moved the CSVs aside and confirmed `terraform validate` passes without them, then restored
   them and confirmed it still passes with the real files, so local applies keep real change-detection). Pushed as a third commit; the next CI run on
   the branch came back fully green (dbt/audit/terraform/api-image/test all ✓).
+
+## Update 2026-09-29 (later) - PR opened, median accuracy stat, safe prod-build script, terraform drift reconciled
+
+Owner: "PR khol de....aur sab kuch theek karde" (open the PR, and fix everything else that was flagged as pending).
+
+- **PR #17 opened** (`ml-dashboard-live-2026-09-29` -> `main`), CI green on it.
+- **Dashboard's accuracy stat switched from mean to median.** Flagged earlier today as misleading (09-28's mean was ~4.9km but median was ~1.3km -
+  mean gets dragged up hard by rare large-error outliers, median barely moves). Added `median_km` to `predict/handler.py`'s `_update_metrics`
+  (computed the same way `p90_km` already was, from the same `sample_p90_km` reservoir - the function's own docstring already said "mean/median/p90"
+  but median was never actually implemented until now). `api/cloud/app.py`'s `/api/stats/accuracy` falls back to deriving `median_km` from the
+  stored `sample_p90_km` array for any day written before this field existed, so old days don't have a hole in the chart - no backfill script
+  needed. `TopBar.tsx` and `AircraftDetailPanel.tsx` now display `median_km`. Redeployed both predict and api Lambdas (`terraform apply -target`
+  x4, ~10min for the docker builds+pushes - `api_image`'s push alone took ~9min, slower than usual, no obvious cause, not investigated further
+  since it completed fine); verified via CloudWatch logs (both healthy, no errors) and a direct curl of the live `/api/stats/accuracy` endpoint -
+  confirmed real numbers: 09-28 `mean_km=4.866`, `median_km=1.289`.
+- **`.env.local`-vs-`.env.production` precedence trap - properly fixed this time**, not just documented as a manual workaround. New
+  `web/scripts/build-prod.sh` + a `build:prod` package.json script: sources `.env.production` and exports its values as real shell env vars before
+  calling `next build` - shell-exported vars win over every `.env*` file in Next's own precedence order, so this works correctly even with
+  `.env.local` present, no more moving it aside by hand for every deploy. Verified: ran `pnpm build:prod` with `.env.local` present and confirmed
+  the built JS chunk still had the real API Gateway URL, not `localhost:8000`.
+- **The 3 terraform drift items flagged much earlier this session - investigated for real, not left untouched.** `terraform plan` showed only 2 (the
+  third, a github_actions IAM policy risk, turned out to have no actual drift when checked - nothing to do there). Both real ones turned out to be
+  *live AWS deliberately ahead of code*, not accidental drift to blindly revert:
+  - **Throttle limits**: live had burst=20/rate=10, code said 10/5. This matches this exact session's own earlier finding - the tighter limit is
+    the most likely cause of the real, reproducible `/api/flights/live?limit=6000` slowness hit while testing the new dashboard - someone had
+    already fixed it directly in AWS console. Updated the code to match reality (20/10) instead of reverting a fix that was already working; a
+    `terraform plan` afterward showed this item clean.
+  - **CORS**: live had `allow_origins=["*"]` (wildcard), code had a specific 3-origin list. The code's own comment says CORS isn't the real access
+    boundary (API is public read-only, throttle bounds abuse) - but a wildcard is still a needless loosening worth tightening back. Left the code
+    as the narrow list (correct target state) but **could not apply it** - this environment's own permission classifier blocked the
+    `terraform apply -target=aws_apigatewayv2_api.api` call outright as a "Protected-Scope IaC Apply" and explicitly instructs not to route around
+    that kind of denial through another tool. Reported this honestly rather than finding a workaround; the owner needs to run it themselves:
+    `cd infra/terraform && terraform apply -target=aws_apigatewayv2_api.api`.
+- Rebuilt the web dashboard with `build:prod` and re-synced to the live S3 site; verified the live URL serves the new build (median stat present in
+  the deployed JS, confirmed via curl).
