@@ -90,7 +90,7 @@ jobs:
       - run: uv export --frozen --no-hashes --no-emit-project > /tmp/req.txt
       - run: uvx pip-audit -r /tmp/req.txt --no-deps --disable-pip
       - run: uvx pip-audit -r api/cloud/requirements.txt --no-deps --disable-pip
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
       - name: Frontend audit (report only)
