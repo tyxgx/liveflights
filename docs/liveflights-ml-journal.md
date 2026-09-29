@@ -1185,3 +1185,23 @@ Redeployed via the same `terraform apply -target=null_resource.predict_image -ta
   guard is running every cycle without crashing).
 - Old contaminated records already in `eval_log/*.json` are NOT retroactively cleaned (the log is additive) - if `eval_log` is ever used to retrain,
   filter records where the implied start->actual speed exceeds ~1200 km/h before trusting them, same guard as the live check.
+
+**First-ever push to GitHub, and CI immediately caught real pre-existing debt.** Owner asked "github par push commit kiya????" - answer was no: this
+entire multi-session ML/dashboard effort (predict Lambda, ml/features.py, ml/route_lookup.py, ml/scratch/*, the whole rebuilt dashboard) had only
+ever existed locally, never committed. Fixed properly rather than as one dump:
+- `.gitignore`/`docs/gitignore-recommended.txt` had silently drifted apart (someone had edited `.gitignore` directly in an earlier session without
+  syncing the "recommended" doc back) - synced them, and added entries for `runs/` (trained model checkpoints, regenerable, same category as the
+  already-ignored `ml/scratch/artifacts/`), `ml/scratch/artifacts_prev_2026-09-09/` (an old dated backup of the same), and `run_logs/*.log` +
+  `run_logs/INDEX.txt`/`LATEST.txt` (keeping `run_logs/run.sh`, the actual reusable runner script, tracked).
+- Branched (`ml-dashboard-live-2026-09-29`, not main) and split the work into 3 readable commits by area (ML/predict-Lambda backend, dashboard
+  frontend, docs) rather than one giant commit.
+- First CI run on push: 2 real failures, both genuine pre-existing debt that simply never got checked before (this code was never pushed, so CI
+  never ran on it) - `ruff check .` (39 line-length violations across ml/features.py, ml/route_lookup.py, predict/handler.py, api/cloud/app.py -
+  all of it written across prior sessions without ever running the repo's own lint rule) and `terraform validate` (lambda_predict.tf's
+  `null_resource.predict_image` called `filesha256()` directly on `data/vrs/routes.csv`/`airports.csv`, which are gitignored - absent on a fresh CI
+  checkout, so validate crashed trying to hash a file that isn't there).
+- Fixed both: reflowed the 39 long lines (verified no logic changed - a standalone test of the eval-pending plausibility guard and `_static_meta`
+  still passed, plus the existing 58-test pytest suite, plus a plain `ast.parse` syntax check on every edited file); wrapped the two VRS-CSV hashes
+  in `try(..., "missing-in-ci")` (verified both ways - moved the CSVs aside and confirmed `terraform validate` passes without them, then restored
+  them and confirmed it still passes with the real files, so local applies keep real change-detection). Pushed as a third commit; the next CI run on
+  the branch came back fully green (dbt/audit/terraform/api-image/test all ✓).
