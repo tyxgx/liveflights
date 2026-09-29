@@ -5,20 +5,29 @@ import { MapContainer, TileLayer, ZoomControl } from "react-leaflet";
 import { AircraftLayer } from "@/components/map/AircraftLayer";
 import { AirportLayer } from "@/components/map/AirportLayer";
 import { CorridorLayer } from "@/components/map/CorridorLayer";
-import { GhostTrailLayer } from "@/components/map/GhostTrailLayer";
+import { PredictionLayer } from "@/components/map/PredictionLayer";
+import { DeselectController } from "@/components/map/DeselectController";
 import { FlyToController } from "@/components/map/FlyToController";
 import { RegionController } from "@/components/map/RegionController";
 import { MapResizeController } from "@/components/map/MapResizeController";
 import { DensityHeatLayer } from "@/components/map/DensityHeatLayer";
 import { ProximityLayer } from "@/components/map/ProximityLayer";
 import type { RegionConfig } from "@/lib/regions";
-import type { AnomalyEvent, Corridor, LiveFlight, TrajectoryResponse } from "@/types/api";
+import type { AircraftDetailResponse, AnomalyEvent, Corridor, LiveFlight } from "@/types/api";
 
-// CARTO dark_matter: no API key required, matches the dark UI. Default OSM
-// tiles are light and would look wrong against this theme.
-const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+// CARTO's dark_all basemap (used here originally) started rendering an "API
+// KEY REQUIRED" watermark tile on every pan/zoom — confirmed 2026-09-29 via a
+// direct curl against both of CARTO's anonymous CDN hosts: both now return
+// the same watermark PNG instead of a real tile, i.e. CARTO fully retired
+// free anonymous access, not a transient outage. Esri's World Dark Gray
+// Canvas is the replacement: no key, no signup, genuinely dark-styled (not a
+// CSS-inverted light basemap), and free for this traffic level. Note the
+// {z}/{y}/{x} order in the URL -- Esri's REST tile API swaps x/y from the
+// {z}/{x}/{y} convention every other provider here uses.
+const DARK_TILE_URL =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
 const DARK_TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  '&copy; <a href="https://www.esri.com">Esri</a> &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors';
 
 export interface FlightMapProps {
   region: RegionConfig;
@@ -33,7 +42,11 @@ export interface FlightMapProps {
   selectedIcao24: string | null;
   onSelectFlight: (flight: LiveFlight) => void;
   flyToTarget: [number, number] | null;
-  trajectory: TrajectoryResponse | null;
+  aircraftDetail: AircraftDetailResponse | null;
+  onDeselect: () => void;
+  /** Compare mode's second aircraft — see AircraftDetailPanel's "Compare" button. */
+  compareIcao24?: string | null;
+  compareDetail?: AircraftDetailResponse | null;
 }
 
 // Default export required for next/dynamic({ ssr: false }) — Leaflet
@@ -51,7 +64,10 @@ export default function FlightMap({
   selectedIcao24,
   onSelectFlight,
   flyToTarget,
-  trajectory,
+  aircraftDetail,
+  onDeselect,
+  compareIcao24 = null,
+  compareDetail = null,
 }: FlightMapProps) {
   const visibleFlights = anomaliesOnly
     ? flights.filter((f) => anomalyByIcao.has(f.icao24))
@@ -77,17 +93,20 @@ export default function FlightMap({
       <TileLayer url={DARK_TILE_URL} attribution={DARK_TILE_ATTRIBUTION} />
       {showHeatmap && <DensityHeatLayer flights={flights} />}
       {showCorridors && <AirportLayer />}
-      {showCorridors && <CorridorLayer corridors={corridors} />}
+      {showCorridors && <CorridorLayer corridors={corridors} dimmed={Boolean(selectedIcao24)} />}
       {showProximity && <ProximityLayer flights={flights} />}
       {showAircraft && (
         <AircraftLayer
           flights={visibleFlights}
           selectedIcao24={selectedIcao24}
+          compareIcao24={compareIcao24}
           anomalyByIcao={anomalyByIcao}
           onSelect={onSelectFlight}
         />
       )}
-      <GhostTrailLayer trajectory={trajectory} />
+      <PredictionLayer detail={aircraftDetail} accent="#22d3ee" />
+      {compareDetail && <PredictionLayer detail={compareDetail} accent="#a78bfa" />}
+      <DeselectController onDeselect={onDeselect} />
       <FlyToController target={flyToTarget} />
       <RegionController region={region} />
       <MapResizeController />

@@ -1,4 +1,6 @@
 import type {
+  AccuracyResponse,
+  AircraftDetailResponse,
   AnomaliesResponse,
   ByCountryResponse,
   CorridorsResponse,
@@ -6,6 +8,7 @@ import type {
   HealthResponse,
   LiveFlightsResponse,
   OverviewStats,
+  PredictionsResponse,
   TrafficByHourResponse,
   TrajectoryResponse,
 } from "@/types/api";
@@ -46,6 +49,12 @@ export const api = {
     get<AnomaliesResponse>(`/api/anomalies?page=${page}&page_size=${pageSize}`),
   corridors: (limit = 20) => get<CorridorsResponse>(`/api/corridors?limit=${limit}`),
   forecast: () => get<ForecastResponse>("/api/forecast/traffic"),
+  // GRU trajectory model (live, 2026-09-28 —) — real predicted-vs-actual, not the paused
+  // heading-based estimate `trajectory()`/`departure_iata` above still cover for local dev.
+  predictions: () => get<PredictionsResponse>("/api/predictions"),
+  aircraftDetail: (icao24: string, trailMinutes = 15) =>
+    get<AircraftDetailResponse>(`/api/aircraft/${icao24}?trail_minutes=${trailMinutes}`),
+  accuracy: (days = 30) => get<AccuracyResponse>(`/api/stats/accuracy?days=${days}`),
 };
 
 export const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000/ws/flights";

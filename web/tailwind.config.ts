@@ -22,6 +22,10 @@ const config: Config = {
         accent: {
           cyan: "#22d3ee",
           teal: "#2dd4bf",
+          // Second-aircraft accent for compare mode — needs to read as clearly
+          // distinct from accent-cyan (primary selection) at a glance, both on
+          // the dark map and against the KPI/detail-panel chrome.
+          violet: "#a78bfa",
         },
         warn: "#f5a524",
         danger: "#f43f5e",

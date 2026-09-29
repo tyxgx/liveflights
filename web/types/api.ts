@@ -166,3 +166,67 @@ export interface HealthResponse {
   trajectory_model: ComponentStatus;
   forecast_model: ComponentStatus;
 }
+
+// --- GRU trajectory prediction (api/cloud/app.py's /api/predictions, /api/aircraft/{icao24},
+// /api/stats/accuracy — the live model trained 2026-09-28, see docs/liveflights-ml-journal.md) ---
+
+export interface AirportInfo {
+  code: string;
+  name: string;
+  city: string;
+  iata: string;
+  country: string;
+  lat: number;
+  lon: number;
+}
+
+/** The SCHEDULED route for this callsign (VRS standing data) — not proof this specific aircraft
+ * is flying it today. Always labeled "scheduled" wherever shown, never presented as confirmed. */
+export interface RouteInfo {
+  origin: AirportInfo;
+  destination: AirportInfo;
+  stops: AirportInfo[];
+}
+
+export interface PredictionRecord {
+  made_at: number;
+  target_ts: number;
+  /** 30 points, one every 10s out to +5 min, [lat, lon] */
+  path: [number, number][];
+  pred_lat_5min: number;
+  pred_lon_5min: number;
+  start_lat: number;
+  start_lon: number;
+  route: RouteInfo | null;
+}
+
+export interface PredictionsResponse {
+  count: number;
+  predictions: Record<string, PredictionRecord>;
+}
+
+export interface TrailPoint {
+  ts: number;
+  lat: number;
+  lon: number;
+}
+
+export interface AircraftDetailResponse {
+  icao24: string;
+  found: boolean;
+  state: LiveFlight | null;
+  trail: TrailPoint[];
+  prediction: PredictionRecord | null;
+  route: RouteInfo | null;
+}
+
+export interface AccuracyDay {
+  day: string;
+  n: number;
+  mean_km: number | null;
+  p90_km: number | null;
+}
+
+export interface AccuracyResponse {
+  days: AccuracyDay[];
+}

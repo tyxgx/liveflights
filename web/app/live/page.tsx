@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, WS_URL } from "@/lib/api";
 import { usePolledData } from "@/hooks/usePolledData";
 import { useFlightsWebSocket } from "@/hooks/useFlightsWebSocket";
@@ -11,10 +11,11 @@ import { AnomalyFeed } from "@/components/panels/AnomalyFeed";
 import { ChartsPanel } from "@/components/panels/ChartsPanel";
 import { LayerControls } from "@/components/panels/LayerControls";
 import { EmergencyBanner } from "@/components/panels/EmergencyBanner";
+import { AircraftDetailPanel } from "@/components/panels/AircraftDetailPanel";
 import { Skeleton } from "@/components/ui/States";
 import { REGIONS, defaultRegion } from "@/lib/regions";
 import { getEmergencySquawks } from "@/lib/flightInsights";
-import type { AnomalyEvent, LiveFlight, TrajectoryResponse } from "@/types/api";
+import type { AircraftDetailResponse, AnomalyEvent, LiveFlight } from "@/types/api";
 
 // Leaflet touches `window` at import time — importing it during Next.js SSR
 // crashes the render. next/dynamic with ssr:false is mandatory here.
@@ -54,7 +55,23 @@ export default function DashboardPage() {
 
   const [selectedIcao24, setSelectedIcao24] = useState<string | null>(null);
   const [flyToTarget, setFlyToTarget] = useState<[number, number] | null>(null);
-  const [trajectory, setTrajectory] = useState<TrajectoryResponse | null>(null);
+  const [aircraftDetail, setAircraftDetail] = useState<AircraftDetailResponse | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  // Compare mode: a second aircraft, entered via the primary panel's "Compare" button. `picking`
+  // is true only in the window between clicking that button and clicking a second aircraft on the
+  // map — AircraftLayer's onSelect below checks it to decide whether a click sets the compare slot
+  // instead of just replacing the primary selection (its normal behavior).
+  const [compareIcao24, setCompareIcao24] = useState<string | null>(null);
+  const [compareDetail, setCompareDetail] = useState<AircraftDetailResponse | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [pickingCompare, setPickingCompare] = useState(false);
+
+  // Today's live model accuracy (metrics/daily.json, via the predict Lambda's real evaluation
+  // loop) — shown in the detail panel next to the model's own prediction, so "how good is this
+  // guess" is answered with a live number, not just asserted.
+  const { data: accuracyData } = usePolledData(() => api.accuracy(1), 60000);
+  const todayAccuracy = accuracyData?.days[accuracyData.days.length - 1] ?? null;
 
   const anomalyByIcao = useMemo(() => {
     const map = new Map<string, AnomalyEvent>();
@@ -68,35 +85,97 @@ export default function DashboardPage() {
 
   const emergencies = useMemo(() => getEmergencySquawks(flights), [flights]);
 
-  const selectAircraft = useCallback((flight: LiveFlight) => {
-    setSelectedIcao24(flight.icao24);
-    if (flight.latitude != null && flight.longitude != null) {
-      setFlyToTarget([flight.latitude, flight.longitude]);
-    }
+  const focusAircraft = useCallback((icao24: string, lat: number | null, lon: number | null) => {
+    setSelectedIcao24(icao24);
+    if (lat != null && lon != null) setFlyToTarget([lat, lon]);
+    // Declutter first: a click on the map is "look at this one thing", so the other rail panels
+    // (which are about the whole fleet, not this aircraft) get out of the way automatically.
+    setAnomalyFeedCollapsed(true);
+    setChartsCollapsed(true);
+    setDetailLoading(true);
     api
-      .trajectory(flight.icao24)
-      .then(setTrajectory)
-      .catch(() => setTrajectory(null));
+      .aircraftDetail(icao24)
+      .then(setAircraftDetail)
+      .catch(() => setAircraftDetail(null))
+      .finally(() => setDetailLoading(false));
   }, []);
 
-  const selectAnomaly = useCallback(
-    (event: AnomalyEvent) => {
-      setSelectedIcao24(event.icao24);
-      if (event.latitude != null && event.longitude != null) {
-        setFlyToTarget([event.latitude, event.longitude]);
+  const focusCompare = useCallback((icao24: string) => {
+    setCompareIcao24(icao24);
+    setPickingCompare(false);
+    setCompareLoading(true);
+    api
+      .aircraftDetail(icao24)
+      .then(setCompareDetail)
+      .catch(() => setCompareDetail(null))
+      .finally(() => setCompareLoading(false));
+  }, []);
+
+  const closeCompare = useCallback(() => {
+    setCompareIcao24(null);
+    setCompareDetail(null);
+    setPickingCompare(false);
+  }, []);
+
+  const closeDetail = useCallback(() => {
+    setSelectedIcao24(null);
+    setAircraftDetail(null);
+    closeCompare();
+  }, [closeCompare]);
+
+  const selectAircraft = useCallback(
+    (flight: LiveFlight) => {
+      // Mid-pick: a click while "Compare with another aircraft" is armed fills the second slot
+      // instead of replacing the primary selection (this function's normal job everywhere else).
+      if (pickingCompare) {
+        if (flight.icao24 !== selectedIcao24) focusCompare(flight.icao24);
+        return;
       }
-      const liveMatch = flights.find((f) => f.icao24 === event.icao24);
-      if (liveMatch) {
-        api
-          .trajectory(event.icao24)
-          .then(setTrajectory)
-          .catch(() => setTrajectory(null));
-      } else {
-        setTrajectory(null);
-      }
+      // Clicking the aircraft currently in the compare slot (outside picking mode) would otherwise
+      // leave both slots pointing at the same aircraft — clear compare instead of duplicating it.
+      if (flight.icao24 === compareIcao24) closeCompare();
+      focusAircraft(flight.icao24, flight.latitude, flight.longitude);
     },
-    [flights],
+    [pickingCompare, compareIcao24, closeCompare, focusCompare, focusAircraft],
   );
+
+  const selectAnomaly = useCallback(
+    (event: AnomalyEvent) => focusAircraft(event.icao24, event.latitude, event.longitude),
+    [focusAircraft],
+  );
+
+  useEffect(() => {
+    if (!selectedIcao24) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (pickingCompare) setPickingCompare(false);
+        else if (compareIcao24) closeCompare();
+        else closeDetail();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedIcao24, pickingCompare, compareIcao24, closeCompare, closeDetail]);
+
+  // Predictions refresh every minute in reality (the predict Lambda's own schedule) — keep the
+  // open panel(s) and the map's dashed path(s) current while an aircraft stays selected, not
+  // frozen at the moment of the click.
+  useEffect(() => {
+    if (!selectedIcao24) return;
+    const id = setInterval(() => {
+      api
+        .aircraftDetail(selectedIcao24)
+        .then(setAircraftDetail)
+        .catch(() => {});
+      if (compareIcao24) {
+        api
+          .aircraftDetail(compareIcao24)
+          .then(setCompareDetail)
+          .catch(() => {});
+      }
+    }, 15000);
+    return () => clearInterval(id);
+  }, [selectedIcao24, compareIcao24]);
 
   return (
     // Docked app-shell instead of floating cards over a full-bleed map: a
@@ -154,9 +233,32 @@ export default function DashboardPage() {
               selectedIcao24={selectedIcao24}
               onSelectFlight={selectAircraft}
               flyToTarget={flyToTarget}
-              trajectory={trajectory}
+              aircraftDetail={aircraftDetail}
+              onDeselect={closeDetail}
+              compareIcao24={compareIcao24}
+              compareDetail={compareDetail}
             />
             <EmergencyBanner emergencies={emergencies} />
+            {selectedIcao24 && (
+              <AircraftDetailPanel
+                detail={aircraftDetail}
+                loading={detailLoading}
+                accuracy={todayAccuracy}
+                onClose={closeDetail}
+                onCompare={() => setPickingCompare(true)}
+                picking={pickingCompare}
+                onCancelCompare={() => setPickingCompare(false)}
+              />
+            )}
+            {compareIcao24 && (
+              <AircraftDetailPanel
+                variant="compare"
+                detail={compareDetail}
+                loading={compareLoading}
+                accuracy={todayAccuracy}
+                onClose={closeCompare}
+              />
+            )}
           </div>
 
           <ChartsPanel

@@ -18,7 +18,22 @@ function corridorLabel(c: Corridor): string | null {
   return null;
 }
 
-export function CorridorLayer({ corridors }: { corridors: Corridor[] }) {
+export function CorridorLayer({
+  corridors,
+  dimmed = false,
+}: {
+  corridors: Corridor[];
+  /** True while an aircraft is selected: the corridor mesh (drawn across the
+   * whole visible map) visually competes with that aircraft's trail/
+   * prediction/route lines, which are the actually-relevant lines at that
+   * moment. Rather than hiding corridors outright (still useful spatial
+   * context), fade them hard so the focused lines read first. */
+  dimmed?: boolean;
+}) {
+  const lineOpacity = dimmed ? 0.12 : 0.45;
+  const centroidOpacity = dimmed ? 0.18 : 0.6;
+  const hubOpacity = dimmed ? 0.15 : 0.5;
+
   return (
     <>
       {corridors.map((c) => {
@@ -27,7 +42,7 @@ export function CorridorLayer({ corridors }: { corridors: Corridor[] }) {
           <Polyline
             key={c.corridor_id}
             positions={c.polyline}
-            pathOptions={{ color: "#22d3ee", weight: 1.5, opacity: 0.45 }}
+            pathOptions={{ color: "#22d3ee", weight: 1.5, opacity: lineOpacity }}
           >
             {label && <Tooltip sticky>{label}</Tooltip>}
           </Polyline>
@@ -38,7 +53,12 @@ export function CorridorLayer({ corridors }: { corridors: Corridor[] }) {
           key={`centroid-${c.corridor_id}`}
           center={[c.centroid_lat, c.centroid_lon]}
           radius={2}
-          pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.6, opacity: 0.6 }}
+          pathOptions={{
+            color: "#22d3ee",
+            fillColor: "#22d3ee",
+            fillOpacity: centroidOpacity,
+            opacity: centroidOpacity,
+          }}
         />
       ))}
       {/* Hub-only matches (see Corridor.hub_airport): the corridor's own
@@ -62,7 +82,7 @@ export function CorridorLayer({ corridors }: { corridors: Corridor[] }) {
               pathOptions={{
                 color: "#fbbf24",
                 weight: 1,
-                opacity: 0.5,
+                opacity: hubOpacity,
                 dashArray: "2,4",
               }}
             />
