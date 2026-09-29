@@ -16,7 +16,7 @@ jobs:
       # earlier dates create a run with zero tasks that falsely reports success.
       LOGICAL_DATE: "2026-09-18T15:00:00"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v3
 
       - name: Prepare env

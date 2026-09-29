@@ -34,7 +34,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v3
       - run: uv sync
       - run: uv run ruff check .
@@ -45,7 +45,7 @@ jobs:
     # the test job for why CI never applies infra).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v3
       - run: terraform fmt -check -recursive
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -65,7 +65,7 @@ jobs:
       POSTGRES_PORT: "5432"
       POSTGRES_DB: ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v3
       - run: uv sync --group dbt
       - run: uv run --group dbt dbt parse --project-dir transform --profiles-dir transform
@@ -75,7 +75,7 @@ jobs:
     # before it reaches the Lambda container image.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build --platform linux/amd64 -f api/cloud/Dockerfile -t liveflights-api:ci .
 
   audit:
@@ -85,7 +85,7 @@ jobs:
     # (see docs/security.md).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v3
       - run: uv export --frozen --no-hashes --no-emit-project > /tmp/req.txt
       - run: uvx pip-audit -r /tmp/req.txt --no-deps --disable-pip
