@@ -396,7 +396,9 @@ def _aircraft_trail(icao24: str, minutes: int) -> list[dict]:
     readings = entry.get("readings") or []
     lat_i, lon_i = HISTORY_FIELD_ORDER.index("lat"), HISTORY_FIELD_ORDER.index("lon")
     cutoff = readings[-1][0] - minutes * 60 if readings else 0
-    return [{"ts": r[0], "lat": r[1 + lat_i], "lon": r[1 + lon_i]} for r in readings if r[0] >= cutoff]
+    return [
+        {"ts": r[0], "lat": r[1 + lat_i], "lon": r[1 + lon_i]} for r in readings if r[0] >= cutoff
+    ]
 
 
 @app.get("/api/aircraft/{icao24}")
@@ -424,7 +426,8 @@ def aircraft_detail(icao24: str, trail_minutes: int = 15) -> dict:
 def stats_accuracy(days: int = 30) -> dict:
     """Rolling prediction-vs-actual accuracy, from the permanent metrics/daily.json the predict
     Lambda maintains (see that module's docstring) - the "how accurate are we" proof for the
-    dashboard, deliberately kept separate from the 7-day raw archive so this survives indefinitely."""
+    dashboard, deliberately kept separate from the 7-day raw archive so this survives
+    indefinitely."""
     data = _load_json(METRICS_KEY, {"days": []})
     recent = data.get("days", [])[-days:]
     return {

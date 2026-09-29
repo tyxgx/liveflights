@@ -1,25 +1,28 @@
-"""callsign -> {origin, destination} airport info, from VRS standing data (routes.csv + airports.csv,
-CC0, downloaded to data/vrs/ by ml/scratch/download_vrs.sh).
+"""callsign -> {origin, destination} airport info, from VRS standing data (routes.csv +
+airports.csv, CC0, downloaded to data/vrs/ by ml/scratch/download_vrs.sh).
 
-`routes.csv`'s `AirportCodes` column is the FULL scheduled route as "ORIGIN-...-DESTINATION" (94% of
-rows are a simple 2-airport origin-destination; ~6% have one or more stops in between). This is the
-SCHEDULE for that callsign, not proof a specific aircraft actually flew it that day - shown to the
-user as "scheduled route", not asserted as fact (see ml/scratch/build_windows_v2.py's load_dest_table,
-which uses only the destination end of this same data for the ML model's destination-bearing feature;
-this module is the fuller version, for DISPLAY - names/cities/IATA codes, both ends, any stops).
+`routes.csv`'s `AirportCodes` column is the FULL scheduled route as "ORIGIN-...-DESTINATION"
+(94% of rows are a simple 2-airport origin-destination; ~6% have one or more stops in between).
+This is the SCHEDULE for that callsign, not proof a specific aircraft actually flew it that day -
+shown to the user as "scheduled route", not asserted as fact (see
+ml/scratch/build_windows_v2.py's load_dest_table, which uses only the destination end of this
+same data for the ML model's destination-bearing feature; this module is the fuller version, for
+DISPLAY - names/cities/IATA codes, both ends, any stops).
 
 Usage:
     from route_lookup import load_route_lookup
-    routes = load_route_lookup()                    # ~620k callsigns, loaded once
-    routes.get("DLH123")                             # -> {"origin": {...}, "destination": {...}, "stops": [...]} or None
+    routes = load_route_lookup()  # ~620k callsigns, loaded once
+    routes.get("DLH123")  # -> {"origin": {...}, "destination": {...}, "stops": [...]} | None
 
-Memory: the unfiltered table measured ~197 MB steady-state / 447 MB peak while building it (620,700 small dict
-entries - Python's per-dict overhead dominates, not the actual airport data) - fine on a laptop, but this alone
-overflowed the predict Lambda's 512 MB limit (see the 2026-09-28 journal entry "REAL BUGS found in the first live
-Lambda invocations"). `region_box` filters to routes touching a region at LOAD time, for callers (the live predict
-Lambda) that only ever look up callsigns of aircraft currently flying in one region and never need the rest of the
-world's schedules - NOT used by ml/scratch/build_windows_v2.py's load_dest_table() (training), which deliberately
-keeps the full unfiltered table since a Europe-transiting flight's destination can be anywhere on Earth.
+Memory: the unfiltered table measured ~197 MB steady-state / 447 MB peak while building it
+(620,700 small dict entries - Python's per-dict overhead dominates, not the actual airport data)
+- fine on a laptop, but this alone overflowed the predict Lambda's 512 MB limit (see the
+2026-09-28 journal entry "REAL BUGS found in the first live Lambda invocations"). `region_box`
+filters to routes touching a region at LOAD time, for callers (the live predict Lambda) that only
+ever look up callsigns of aircraft currently flying in one region and never need the rest of the
+world's schedules - NOT used by ml/scratch/build_windows_v2.py's load_dest_table() (training),
+which deliberately keeps the full unfiltered table since a Europe-transiting flight's destination
+can be anywhere on Earth.
 """
 
 from __future__ import annotations
@@ -112,9 +115,11 @@ def load_route_table(vrs_dir: str = "data/vrs",
     return RouteTable(airports, routes_compact)
 
 
-def load_route_lookup(vrs_dir: str = "data/vrs",
-                      region_box: tuple[float, float, float, float] | None = None) -> dict[str, dict]:
-    """callsign -> {"origin": airport_dict, "destination": airport_dict, "stops": [airport_dict, ...]}.
+def load_route_lookup(
+    vrs_dir: str = "data/vrs",
+    region_box: tuple[float, float, float, float] | None = None,
+) -> dict[str, dict]:
+    """callsign -> {"origin", "destination", "stops": [...]}, each value an airport info dict.
 
     An airport code with no match in airports.csv (rare - the extractor's data validation found
     99.99% of destination codes resolve) is dropped from that route entirely (returns None for
@@ -128,7 +133,9 @@ def load_route_lookup(vrs_dir: str = "data/vrs",
     routes_path = os.path.join(vrs_dir, "routes.csv")
     if not os.path.exists(routes_path):
         # some VRS downloads keep the per-country sharded files instead of the bulk CSV
-        shard_files = glob.glob(os.path.join(vrs_dir, "standing-data", "routes", "schema-01", "*", "*.csv"))
+        shard_files = glob.glob(
+            os.path.join(vrs_dir, "standing-data", "routes", "schema-01", "*", "*.csv")
+        )
         rows = []
         for fp in shard_files:
             with open(fp, encoding="utf-8-sig", newline="") as f:

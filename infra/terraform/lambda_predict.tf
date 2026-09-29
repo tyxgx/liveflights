@@ -41,8 +41,13 @@ resource "null_resource" "predict_image" {
     requirements_hash = filesha256("${path.module}/../../predict/requirements.txt")
     features_hash     = filesha256("${path.module}/../../ml/features.py")
     routelookup_hash  = filesha256("${path.module}/../../ml/route_lookup.py")
-    routes_csv_hash   = filesha256("${path.module}/../../data/vrs/routes.csv")
-    airports_csv_hash = filesha256("${path.module}/../../data/vrs/airports.csv")
+    # data/vrs/*.csv is gitignored (large reference data, downloaded locally via
+    # ml/scratch/download_vrs.sh) - absent on a fresh CI checkout, where `terraform validate`
+    # would otherwise fail outright trying to hash a file that isn't there. try() falls back to a
+    # constant there (CI never applies, so no real change-detection is lost); a real local apply,
+    # where the file exists, still gets the real hash and rebuilds the image if VRS data changes.
+    routes_csv_hash   = try(filesha256("${path.module}/../../data/vrs/routes.csv"), "missing-in-ci")
+    airports_csv_hash = try(filesha256("${path.module}/../../data/vrs/airports.csv"), "missing-in-ci")
   }
 
   provisioner "local-exec" {

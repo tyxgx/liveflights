@@ -30,7 +30,6 @@ import boto3
 import numpy as np
 import onnxruntime as ort
 from botocore.exceptions import ClientError
-
 from features import HIST, window_s, window_s_dest, window_x  # vendored: COPY ml/features.py
 from route_lookup import RouteTable, load_route_table  # vendored: COPY ml/route_lookup.py
 
@@ -44,10 +43,12 @@ HISTORY_KEY = "live/history.json"
 PREDICTIONS_KEY = "live/predictions.json"
 PENDING_KEY = "live/pending.json"
 METRICS_KEY = "metrics/daily.json"
-EVAL_LOG_PREFIX = "eval_log/"  # + "<date>.json" per day, full per-prediction records (see _append_eval_log)
+# + "<date>.json" per day, full per-prediction records (see _append_eval_log)
+EVAL_LOG_PREFIX = "eval_log/"
 MODEL_KEY = os.environ.get("MODEL_KEY", "models/trajectory.onnx")
 NORM_KEY = os.environ.get("NORM_KEY", "models/trajectory_norm.json")
-METRICS_RETENTION_DAYS = 400  # small (one row/day), keep well over a year; not the 7-day raw archive
+# small (one row/day), keep well over a year; not the 7-day raw archive
+METRICS_RETENTION_DAYS = 400
 
 # must match ml/scratch/build_windows_v2.py's HISTORY_FIELD_ORDER / HIST/STEP exactly, or the
 # window fed to the model does not match what it was trained on (see ml/features.py's module
@@ -110,8 +111,10 @@ def _get_json(key: str, default: Any) -> Any:
 
 
 def _put_json(key: str, data: Any) -> None:
-    s3.put_object(Bucket=LAKE_BUCKET_NAME, Key=key,
-                  Body=json.dumps(data, separators=(",", ":")).encode(), ContentType="application/json")
+    s3.put_object(
+        Bucket=LAKE_BUCKET_NAME, Key=key,
+        Body=json.dumps(data, separators=(",", ":")).encode(), ContentType="application/json",
+    )
 
 
 def _select_window(readings: list[list[float]]) -> np.ndarray | None:
@@ -184,8 +187,12 @@ def _predict_batch(icaos: list[str], rows_list: list[np.ndarray], metas: list[di
                     fc["mach"], fc["tas_ms"], fc["ias_ms"], fc["true_heading"], fc["wd_deg"],
                     fc["ws_ms"], fc["nav_alt_mcp_m"], fc["nav_heading"])
         if use_dest:
-            dlat = np.array([(routes[i]["destination"]["lat"] if routes[i] else np.nan) for i in range(c0, c1)])
-            dlon = np.array([(routes[i]["destination"]["lon"] if routes[i] else np.nan) for i in range(c0, c1)])
+            dlat = np.array(
+                [(routes[i]["destination"]["lat"] if routes[i] else np.nan) for i in range(c0, c1)]
+            )
+            dlon = np.array(
+                [(routes[i]["destination"]["lon"] if routes[i] else np.nan) for i in range(c0, c1)]
+            )
             s = window_s_dest(lat_last[c0:c1], lon_last[c0:c1], now_ts[c0:c1], cat_id[c0:c1],
                               wake_id[c0:c1], is_heli[c0:c1], is_mil[c0:c1], dlat, dlon,
                               fc["track_deg"], fc["vrate_baro_ms"], fc["vrate_geom_ms"])
@@ -239,7 +246,7 @@ def _eval_pending(pending: dict[str, dict], history: dict[str, dict]) -> tuple[d
         readings = (history.get(icao) or {}).get("readings") or []
         best = min(readings, key=lambda r: abs(r[0] - pred["target_ts"]), default=None)
         if best is None or abs(best[0] - pred["target_ts"]) > EVAL_TOL_S:
-            if now - pred["target_ts"] < 5 * 60:  # give a late reading a bit more time, then give up
+            if now - pred["target_ts"] < 5 * 60:  # give a late reading more time, then give up
                 still_pending[icao] = pred
             continue
         # Plausibility check: derive the implied speed from the aircraft's OWN last known position
@@ -256,7 +263,9 @@ def _eval_pending(pending: dict[str, dict], history: dict[str, dict]) -> tuple[d
                 continue  # not this aircraft's real motion - drop the match, not a model error
 
         dlat, dlon = best[1] - pred["pred_lat_5min"], best[2] - pred["pred_lon_5min"]
-        err = ((dlat * km_per_deg) ** 2 + (dlon * km_per_deg * np.cos(np.radians(best[1]))) ** 2) ** 0.5
+        err = (
+            (dlat * km_per_deg) ** 2 + (dlon * km_per_deg * np.cos(np.radians(best[1]))) ** 2
+        ) ** 0.5
         records.append({
             "icao": icao, "made_at": pred["made_at"], "target_ts": pred["target_ts"],
             "pred_lat": pred["pred_lat_5min"], "pred_lon": pred["pred_lon_5min"],
@@ -267,9 +276,10 @@ def _eval_pending(pending: dict[str, dict], history: dict[str, dict]) -> tuple[d
     return still_pending, records
 
 
-EVAL_LOG_RETENTION_DAYS = 60  # "kuch dino ke liye" (owner, 2026-09-28) - full per-prediction records
-# for improving the model later, not just same-day aggregates. Revisit/extend once the model is
-# actually being retrained from this - see _append_eval_log's docstring.
+# "kuch dino ke liye" (owner, 2026-09-28) - full per-prediction records for improving the model
+# later, not just same-day aggregates. Revisit/extend once the model is actually being retrained
+# from this - see _append_eval_log's docstring.
+EVAL_LOG_RETENTION_DAYS = 60
 
 
 def _append_eval_log(records: list[dict]) -> None:
@@ -316,7 +326,7 @@ def _update_metrics(errors_km: list[float]) -> None:
     today["n"] += len(errors_km)
     today["sum_km"] += float(arr.sum())
     today["sq_sum_km2"] += float((arr ** 2).sum())
-    today["sample_p90_km"] = (today["sample_p90_km"] + errors_km)[-2000:]  # bounded reservoir for p90
+    today["sample_p90_km"] = (today["sample_p90_km"] + errors_km)[-2000:]  # bounded p90 reservoir
     today["mean_km"] = round(today["sum_km"] / today["n"], 3)
     today["p90_km"] = round(float(np.quantile(today["sample_p90_km"], 0.9)), 3)
     days = days[-METRICS_RETENTION_DAYS:]
@@ -325,11 +335,16 @@ def _update_metrics(errors_km: list[float]) -> None:
 
 def _static_meta(category: str) -> dict[str, float]:
     """Placeholder static features until the VRS wake/military lookup is vendored in here too
-    (category_id can be read live; wake/military need the same tables ml/scratch/build_windows_v2.py
-    loads from data/vrs/ - not yet wired into this Lambda, see the journal entry for this file)."""
+    (category_id can be read live; wake/military need the same tables
+    ml/scratch/build_windows_v2.py loads from data/vrs/ - not yet wired into this Lambda, see the
+    journal entry for this file)."""
     cat = category or ""
-    cat_id = ("ABC".index(cat[0]) * 8 + int(cat[1])) if len(cat) == 2 and cat[0] in "ABC" and cat[1].isdigit() else 24
-    return {"cat_id": float(cat_id), "wake_id": -1.0, "is_heli": 1.0 if cat == "A7" else 0.0, "is_mil": 0.0}
+    valid = len(cat) == 2 and cat[0] in "ABC" and cat[1].isdigit()
+    cat_id = ("ABC".index(cat[0]) * 8 + int(cat[1])) if valid else 24
+    return {
+        "cat_id": float(cat_id), "wake_id": -1.0,
+        "is_heli": 1.0 if cat == "A7" else 0.0, "is_mil": 0.0,
+    }
 
 
 def handler(event: dict, context: object) -> dict:
@@ -355,23 +370,25 @@ def handler(event: dict, context: object) -> dict:
         metas.append(_static_meta(entry.get("category")))
         route_list.append(routes.get(entry.get("callsign") or ""))
 
+    use_dest = bool(norm.get("use_dest"))
     try:
-        predictions = _predict_batch(icaos, windows, metas, route_list, sess, bool(norm.get("use_dest")))
-    except Exception:  # noqa: BLE001 - a bad batch (e.g. one aircraft's odd data) must not sink the whole poll;
-        # fall back to one-by-one so the other aircraft in this minute still get a prediction
+        predictions = _predict_batch(icaos, windows, metas, route_list, sess, use_dest)
+    except Exception:  # noqa: BLE001 - a bad batch (e.g. one aircraft's odd data) must not sink
+        # the whole poll; fall back to one-by-one so the other aircraft this minute still predict
         logger.exception("Batched prediction failed, falling back to per-aircraft")
         predictions = {}
         for icao, window, meta, route in zip(icaos, windows, metas, route_list, strict=True):
             try:
-                predictions.update(_predict_batch([icao], [window], [meta], [route], sess,
-                                                  bool(norm.get("use_dest"))))
+                predictions.update(
+                    _predict_batch([icao], [window], [meta], [route], sess, use_dest)
+                )
             except Exception:  # noqa: BLE001
                 logger.exception("Prediction failed for %s", icao)
 
     _put_json(PREDICTIONS_KEY, predictions)
 
     pending = _get_json(PENDING_KEY, {})
-    pending.update({icao: p for icao, p in predictions.items()})  # newest prediction per aircraft wins
+    pending.update({icao: p for icao, p in predictions.items()})  # newest prediction wins
     still_pending, records = _eval_pending(pending, history)
     _put_json(PENDING_KEY, still_pending)
     errors_km = [r["error_km"] for r in records]
