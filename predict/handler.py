@@ -329,6 +329,13 @@ def _update_metrics(errors_km: list[float]) -> None:
     today["sample_p90_km"] = (today["sample_p90_km"] + errors_km)[-2000:]  # bounded p90 reservoir
     today["mean_km"] = round(today["sum_km"] / today["n"], 3)
     today["p90_km"] = round(float(np.quantile(today["sample_p90_km"], 0.9)), 3)
+    # median_km, not mean_km, is the honest "how good is a typical prediction" number - the
+    # docstring above always said "mean/median/p90" but median was never actually computed until
+    # now. A single very-wrong prediction (a turning aircraft, or the icao24-reuse eval-matching
+    # bug fixed 2026-09-29) drags the mean up hard; the median barely moves. Found via a real
+    # live check: 09-28's mean was ~4.9km but its median was ~1.3km - the dashboard showing mean
+    # alone was quietly overstating how bad the model's typical prediction actually is.
+    today["median_km"] = round(float(np.quantile(today["sample_p90_km"], 0.5)), 3)
     days = days[-METRICS_RETENTION_DAYS:]
     _put_json(METRICS_KEY, {"days": days})
 

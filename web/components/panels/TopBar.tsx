@@ -119,11 +119,11 @@ export function TopBar({
         <Stat
           label="Predict acc (5min)"
           value={
-            todayAccuracy?.mean_km != null
-              ? `±${todayAccuracy.mean_km.toFixed(1)}km`
+            todayAccuracy?.median_km != null
+              ? `±${todayAccuracy.median_km.toFixed(1)}km`
               : "—"
           }
-          note={todayAccuracy?.n ? `n=${todayAccuracy.n}` : undefined}
+          note={todayAccuracy?.n ? `n=${todayAccuracy.n}, median` : undefined}
         />
       </div>
 

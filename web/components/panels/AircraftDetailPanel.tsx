@@ -213,10 +213,10 @@ export function AircraftDetailPanel({
                 : "—"
             }
           />
-          {accuracy && accuracy.mean_km != null && (
+          {accuracy && accuracy.median_km != null && (
             <Row
               label="Today's live accuracy"
-              value={`±${accuracy.mean_km.toFixed(1)} km avg`}
+              value={`±${accuracy.median_km.toFixed(1)} km (median)`}
               accent="text-accent-cyan"
             />
           )}

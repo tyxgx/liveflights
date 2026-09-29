@@ -430,12 +430,19 @@ def stats_accuracy(days: int = 30) -> dict:
     indefinitely."""
     data = _load_json(METRICS_KEY, {"days": []})
     recent = data.get("days", [])[-days:]
-    return {
-        "days": [
-            {"day": d["day"], "n": d["n"], "mean_km": d.get("mean_km"), "p90_km": d.get("p90_km")}
-            for d in recent
-        ]
-    }
+    return {"days": [_accuracy_day(d) for d in recent]}
+
+
+def _accuracy_day(d: dict) -> dict:
+    """median_km was added 2026-09-29 (see predict/handler.py's _update_metrics) - days written
+    before that have no stored median_km, so derive it here from the same sample_p90_km
+    reservoir every day already carries, rather than leaving old days with a hole in the chart."""
+    median_km = d.get("median_km")
+    sample = d.get("sample_p90_km")
+    if median_km is None and sample:
+        median_km = round(float(np.quantile(sample, 0.5)), 3)
+    return {"day": d["day"], "n": d["n"], "mean_km": d.get("mean_km"), "p90_km": d.get("p90_km"),
+            "median_km": median_km}
 
 
 handler = Mangum(app)

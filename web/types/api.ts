@@ -225,6 +225,10 @@ export interface AccuracyDay {
   n: number;
   mean_km: number | null;
   p90_km: number | null;
+  // The honest "typical prediction" number - mean_km is skewed hard by rare large-error outliers
+  // (a sharp turn, or the icao24-reuse eval-matching bug fixed 2026-09-29); median barely moves.
+  // Prefer this for display; mean_km is kept for anyone who wants the skewed-by-outliers number.
+  median_km: number | null;
 }
 
 export interface AccuracyResponse {
