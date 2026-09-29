@@ -106,10 +106,21 @@ data "aws_iam_policy_document" "lambda_api_policy" {
     # models/* added when ML (corridors/anomalies/forecast) resumed as small
     # static artifacts (corridors.json, anomaly_threshold.txt,
     # forecast_gbr.joblib) — same read-only, no-warehouse philosophy, just
-    # a few more tiny S3 objects.
-    sid       = "LiveStateRead"
-    actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.lake.arn}/live/*", "${aws_s3_bucket.lake.arn}/stats/*", "${aws_s3_bucket.lake.arn}/models/*"]
+    # a few more tiny S3 objects. metrics/* added 2026-09-29 for
+    # /api/stats/accuracy (metrics/daily.json, the predict Lambda's real
+    # evaluation rollup) — missed on the first pass, caught by a real 500 in
+    # the browser (AccessDenied), not caught by any local test since local
+    # replay never goes through IAM at all. live/predictions.json and
+    # live/history.json (for /api/predictions and /api/aircraft/{icao24})
+    # already fall under live/* above, no separate grant needed for those.
+    sid     = "LiveStateRead"
+    actions = ["s3:GetObject"]
+    resources = [
+      "${aws_s3_bucket.lake.arn}/live/*",
+      "${aws_s3_bucket.lake.arn}/stats/*",
+      "${aws_s3_bucket.lake.arn}/models/*",
+      "${aws_s3_bucket.lake.arn}/metrics/*",
+    ]
   }
   statement {
     # Without ListBucket, a GetObject on a *missing* key (e.g. stats/hourly.json
@@ -193,8 +204,57 @@ resource "aws_iam_role" "scheduler" {
 data "aws_iam_policy_document" "scheduler_policy" {
   statement {
     actions   = ["lambda:InvokeFunction"]
-    resources = [aws_lambda_function.ingest.arn]
+    resources = [aws_lambda_function.ingest.arn, aws_lambda_function.predict.arn]
   }
+}
+
+# --- Predict Lambda (ONNX trajectory model) ---
+
+resource "aws_iam_role" "lambda_predict" {
+  name               = "${local.name_prefix}-lambda-predict"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
+data "aws_iam_policy_document" "lambda_predict_policy" {
+  statement {
+    sid       = "Logs"
+    actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.name_prefix}-predict*"]
+  }
+  statement {
+    # reads the rolling history the ingest Lambda writes + the model artifacts; writes its own
+    # predictions/pending + the permanent metrics rollup + the per-day eval log (full
+    # prediction-vs-actual records, for improving the model later - see predict/handler.py's
+    # _append_eval_log). Same small-combined-object pattern as the ingest Lambda (one GET + one
+    # PUT per key per poll, not one write per aircraft/prediction).
+    sid     = "PredictReadWrite"
+    actions = ["s3:GetObject", "s3:PutObject"]
+    resources = [
+      "${aws_s3_bucket.lake.arn}/live/*",
+      "${aws_s3_bucket.lake.arn}/models/*",
+      "${aws_s3_bucket.lake.arn}/metrics/*",
+      "${aws_s3_bucket.lake.arn}/eval_log/*",
+    ]
+  }
+  statement {
+    # same 403-vs-404 reasoning as the ingest/api Lambdas' own ListBucket grants (see their
+    # comments) - a GetObject on a key that doesn't exist yet (e.g. live/pending.json before the
+    # first prediction cycle) needs this to come back NoSuchKey instead of an opaque AccessDenied.
+    sid       = "PredictList"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.lake.arn]
+  }
+  statement {
+    sid       = "XRay"
+    actions   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_predict" {
+  name   = "${local.name_prefix}-lambda-predict"
+  role   = aws_iam_role.lambda_predict.id
+  policy = data.aws_iam_policy_document.lambda_predict_policy.json
 }
 
 resource "aws_iam_role_policy" "scheduler" {

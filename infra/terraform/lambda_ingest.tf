@@ -41,6 +41,12 @@ data "archive_file" "lambda_ingest" {
     content  = file("${path.module}/../../ingestion/schemas/adsb_lol_mapping.py")
     filename = "ingestion/schemas/adsb_lol_mapping.py"
   }
+  # ML extras mapping (roll/track_rate/wind/autopilot/...) for the GRU trajectory model's rolling
+  # live/history.json — additive, does not touch the canonical FlightState fields above.
+  source {
+    content  = file("${path.module}/../../ingestion/schemas/adsb_lol_extras_mapping.py")
+    filename = "ingestion/schemas/adsb_lol_extras_mapping.py"
+  }
 }
 
 resource "aws_cloudwatch_log_group" "lambda_ingest" {

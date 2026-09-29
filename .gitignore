@@ -71,5 +71,17 @@ infra/terraform/tfplan.out
 # Local-only ML scratch artifacts (regenerable model binaries/plots/test outputs) -
 # the scripts that produce them are committed, the outputs aren't.
 ml/scratch/artifacts/
+ml/scratch/artifacts_prev_*/
 ml/scratch/__pycache__/
 web/tsconfig.tsbuildinfo
+
+# Trained model checkpoints (.pt/.onnx/norm.json per run) - regenerable from
+# ml/scratch/train_gru_v2.py + ml/scratch/export_onnx.py, not source.
+runs/
+
+# Terminal run logs from run_logs/run.sh (the "he runs commands, I read the logs"
+# workflow) - the runner script itself is real source and stays tracked, its
+# generated output (dated .log files + the INDEX/LATEST pointer files) isn't.
+run_logs/*.log
+run_logs/INDEX.txt
+run_logs/LATEST.txt
