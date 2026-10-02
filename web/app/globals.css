@@ -111,6 +111,12 @@
     top 0.9s linear;
 }
 
+/* Click-to-focus dim/undim (AircraftLayer.tsx sets the opacity inline) — the one authored
+   moment on the map itself, an exponential ease-out so the fade settles rather than snapping. */
+.aircraft-icon-wrapper {
+  transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* Zoom control: dark-themed to match the rest of the UI (Leaflet's default
    is a plain white square). The old 168px push-down offset existed only to
    dodge a floating KPI card that used to sit in this same corner -- the

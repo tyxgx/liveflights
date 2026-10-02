@@ -4,13 +4,17 @@
 #     tracks gross usage so credits cannot mask a runaway resource.
 #   * The alert fires on the forecast too, so it triggers before the money is spent.
 #
-# Steady-state cost of this stack is roughly $1.5-2/month, so a $5 limit with an
-# early actual-spend warning at 40% ($2) leaves a clear signal and no false alarms.
-
+# Steady-state cost was ~$1.5-2/month before the predict Lambda existed. Adding it (a container
+# image in ECR, one more Lambda running every minute, a few more small S3 objects: live/history.json
+# up to several MB, live/predictions.json, live/pending.json, metrics/daily.json) is estimated at
+# another ~$0.5-1.5/month (unverified until real CloudWatch/Cost Explorer numbers are in - see
+# docs/liveflights-ml-journal.md's 2026-09-28 entries). Raised 5 -> 10 so the 40%/100% thresholds
+# below (unchanged, percentage-based) leave the same kind of early-warning headroom as before
+# instead of firing on ordinary usage.
 variable "monthly_budget_usd" {
   description = "Monthly gross-usage budget in USD (credits are NOT netted out)."
   type        = string
-  default     = "5"
+  default     = "10"
 }
 
 resource "aws_sns_topic" "budget_alerts" {

@@ -107,7 +107,7 @@ cd web && pnpm install && pnpm dev
 
 ## Tech stack
 
-Python 3.12 · uv · PySpark 3.5.3 · Delta Lake 3.2.1 · Redpanda (Kafka API) · MinIO (S3-compatible) · PostgreSQL 16 · dbt-core 1.8.9 · Airflow (planned) · scikit-learn · MLflow · FastAPI · Pydantic v2 · SQLAlchemy · Redis · Prometheus · Grafana · Next.js 14 (App Router) · TypeScript · React 18 · Tailwind CSS 3 · react-leaflet / Leaflet · Recharts · pnpm · Docker Compose · Terraform · AWS (Lambda, Step Functions, Glue Catalog, Athena, DynamoDB, Firehose, API Gateway, Bedrock, S3)
+Python 3.12 · uv · PySpark 3.5.3 · Delta Lake 3.2.1 · Redpanda (Kafka API) · MinIO (S3-compatible) · PostgreSQL 16 · dbt-core 1.8.9 · Airflow (4 DAGs) · scikit-learn · PyTorch (GRU trajectory model, ONNX export) · onnxruntime · MLflow · FastAPI · Pydantic v2 · SQLAlchemy · Redis · Prometheus · Grafana · Next.js 14 (App Router) · TypeScript · React 18 · Tailwind CSS 3 · react-leaflet / Leaflet · Recharts · pnpm · Docker Compose · Terraform · AWS (Lambda, API Gateway, S3, EventBridge Scheduler, Kinesis Firehose, SQS, SSM, ECR, IAM/OIDC, CloudWatch, SNS, Budgets)
 
 ## Project structure
 
@@ -116,8 +116,9 @@ liveflights/
 ├── ingestion/       producer, OpenSky client, simulator, schemas, DLQ, tests
 ├── streaming/       Spark bronze/silver/gold jobs, Delta utils, enrichment
 ├── transform/       dbt project (staging -> intermediate -> marts)
-├── orchestration/   Airflow DAGs + plugins (planned, not started — P8)
-├── ml/              corridors, trajectory, anomaly, forecast, registry
+├── orchestration/   Airflow DAGs + plugins (4 DAGs, done — see docs/architecture.md)
+├── ml/              corridors, trajectory (GRU/PyTorch, ONNX-exported), anomaly, forecast, registry
+├── predict/         AWS Lambda: live GRU inference + evaluation loop (metrics/eval_log)
 ├── api/             FastAPI app: routers, services, models, deps
 ├── web/             Next.js 14 App Router dashboard
 ├── infra/           terraform/ (deployed to AWS), grafana/, prometheus/

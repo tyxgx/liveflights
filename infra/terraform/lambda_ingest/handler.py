@@ -43,6 +43,7 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
+from ingestion.schemas.adsb_lol_extras_mapping import map_to_ml_fields
 from ingestion.schemas.adsb_lol_mapping import map_to_flight_state_dict
 from ingestion.simulator import FlightSimulator
 
@@ -60,6 +61,23 @@ SIMULATOR_ANOMALY_RATE = float(os.environ.get("SIMULATOR_ANOMALY_RATE", "0.02"))
 LIVE_SNAPSHOT_KEY = "live/latest.json"
 HOURLY_STATS_KEY = "stats/hourly.json"
 HOURLY_STATS_RETENTION = 48  # keep the last 48 hourly entries, drop older ones
+HISTORY_KEY = "live/history.json"
+# ml/scratch/build_windows_v2.py's window is 10 readings spaced 60 s apart (H_OFF = -54..0 rows on
+# a 10 s grid = 9 minutes back from "now"); keep a few extra minutes of slack for a missed poll
+# (adsb.lol 429s, a cold start) without losing the ability to build a window once polling resumes.
+HISTORY_WINDOW_MINUTES = 15
+# an aircraft not seen for this long is dropped from history entirely, so the object does not grow
+# forever with aircraft that left coverage (landed, went below the horizon, flew out of the boxes)
+HISTORY_STALE_MINUTES = 20
+# compact form per reading: [ts, lat, lon, alt_baro_m, gs_ms, track_deg, vrate_baro_ms,
+# vrate_geom_ms, roll_deg, track_rate, true_heading, mach, tas_ms, ias_ms, wd_deg, ws_ms,
+# nav_alt_mcp_m, nav_heading] -- a list, not a dict, so the field names are not repeated on every
+# one of the thousands of readings in the combined object (keeps live/history.json much smaller).
+HISTORY_FIELD_ORDER = [
+    "lat", "lon", "alt_baro_m", "gs_ms", "track_deg", "vrate_baro_ms", "vrate_geom_ms", "roll_deg",
+    "track_rate", "true_heading", "mach", "tas_ms", "ias_ms", "wd_deg", "ws_ms", "nav_alt_mcp_m",
+    "nav_heading",
+]
 
 # adsb.lol's /v2/lat/{lat}/lon/{lon}/dist/{nm} endpoint is a single point +
 # radius query, capped at 250nm by the API itself — one call can never cover
@@ -162,9 +180,15 @@ def _fetch_one_point(point: dict[str, float], *, start_delay: float = 0.0) -> li
     states = []
     for row in payload.get("ac") or []:
         try:
-            states.append(map_to_flight_state_dict(row, now=now, source="adsb_lol"))
+            state = map_to_flight_state_dict(row, now=now, source="adsb_lol")
         except (KeyError, TypeError, ValueError) as exc:
             logger.warning("Dropping malformed adsb.lol row: %s", exc)
+            continue
+        # extras is None for rows the trajectory model's training pipeline would also have
+        # dropped (on the ground, no position, non-ICAO address) -- never fatal, just skipped
+        # from the ML history; the canonical `state` is unaffected either way.
+        state["_ml_extras"] = map_to_ml_fields(row, now=now)
+        states.append(state)
     return states
 
 
@@ -293,6 +317,63 @@ def _update_hourly_stats(states: list[dict[str, Any]]) -> None:
     )
 
 
+def _update_history(extras: list[dict[str, Any]]) -> None:
+    """Rolling last-HISTORY_WINDOW_MINUTES-of-readings per aircraft, read-modify-write on ONE
+    combined S3 object — the same cost-driven pattern as `_write_live_snapshot`/
+    `_update_hourly_stats` above (one GET + one PUT per poll, not one write per aircraft).
+
+    This is what the predict Lambda reads to build a GRU window: `ml/features.py`'s `window_x()`/
+    `window_s()` need the last 10 readings spaced 60 s apart, in the same units this dict already
+    uses. Readings closer together than about 40 s to the previous kept one are skipped (the
+    window spacing is 60 s; keeping every ~60 s poll, not every retry/duplicate, keeps the object
+    from filling up with near-duplicate rows if the schedule ever fires faster than once a minute).
+    """
+    try:
+        obj = s3.get_object(Bucket=LAKE_BUCKET_NAME, Key=HISTORY_KEY)
+        history: dict[str, dict[str, Any]] = json.loads(obj["Body"].read())
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] != "NoSuchKey":
+            raise
+        history = {}
+
+    now = time.time()
+    seen_now: set[str] = set()
+    for row in extras:
+        if row is None:
+            continue
+        icao, ts = row["icao24"], row["ts"]
+        seen_now.add(icao)
+        # nested per-aircraft: identity fields (updated to the latest seen each poll - a callsign
+        # can change leg to leg, though rarely mid-poll) + the numeric reading list predict Lambda
+        # windows over. identity fields are NOT part of HISTORY_FIELD_ORDER (they are strings, not
+        # numbers the model consumes) - kept alongside so the predict Lambda / a future dashboard
+        # can label an aircraft (route lookup, category) without a second S3 round trip.
+        entry = history.setdefault(icao, {"readings": []})
+        entry["callsign"] = row.get("callsign") or entry.get("callsign")
+        entry["category"] = row.get("category") or entry.get("category")
+        entry["type_code"] = row.get("type_code") or entry.get("type_code")
+        readings = entry["readings"]
+        if readings and ts - readings[-1][0] < 40:
+            continue  # too close to the previous kept reading, skip (not a new ~60s poll)
+        readings.append([ts, *(row[f] for f in HISTORY_FIELD_ORDER)])
+        cutoff = ts - HISTORY_WINDOW_MINUTES * 60
+        while readings and readings[0][0] < cutoff:
+            readings.pop(0)
+
+    stale_cutoff = now - HISTORY_STALE_MINUTES * 60
+    for icao in list(history):
+        readings = history[icao]["readings"]
+        if icao not in seen_now and (not readings or readings[-1][0] < stale_cutoff):
+            del history[icao]  # left coverage a while ago: drop, don't grow the object forever
+
+    s3.put_object(
+        Bucket=LAKE_BUCKET_NAME,
+        Key=HISTORY_KEY,
+        Body=json.dumps(history, separators=(",", ":")).encode(),
+        ContentType="application/json",
+    )
+
+
 def handler(event: dict, context: object) -> dict:
     """EventBridge entrypoint: fetch live states (or simulate), write to S3."""
     ingest_ts = datetime.now(UTC).isoformat()
@@ -307,6 +388,7 @@ def handler(event: dict, context: object) -> dict:
         states = _simulator.tick()
         for state in states:
             state["source"] = "simulate_cloud"
+            state["_ml_extras"] = None  # the simulator has no roll/wind/etc. to offer
         logger.info("Generated %d simulated states (region=%s)", len(states), SIMULATOR_REGION)
 
     if not states:
@@ -314,6 +396,11 @@ def handler(event: dict, context: object) -> dict:
 
     for state in states:
         state["ingest_ts"] = ingest_ts
+
+    # pulled out BEFORE the canonical writes below, so live/latest.json, Firehose/bronze and the
+    # hourly stats all see exactly the same 16-field shape as before this feature existed — the ML
+    # extras never enter the canonical contract (repo CLAUDE.md "Data contract")
+    extras = [state.pop("_ml_extras", None) for state in states]
 
     # Newline-delimited JSON, one line per aircraft, matching the shape
     # bronze_stream.py already expects locally. Firehose caps a single
@@ -329,5 +416,10 @@ def handler(event: dict, context: object) -> dict:
         _update_hourly_stats(states)
     except Exception:  # noqa: BLE001 - the stats rollup is additive; never let it sink core ingestion
         logger.exception("Hourly stats update failed, continuing without it this poll")
+
+    try:
+        _update_history(extras)
+    except Exception:  # noqa: BLE001 - the ML history is additive; never let it sink core ingestion
+        logger.exception("History update failed, continuing without it this poll")
 
     return {"statusCode": 200, "fetched": len(states), "source": states[0]["source"]}

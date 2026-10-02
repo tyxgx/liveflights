@@ -7,6 +7,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 data/
+# predict/Dockerfile bundles just these 2 small VRS files (~22 MB, CC0) for the route-lookup
+# display feature - everything else under data/ (training extracts, raw dumps) stays excluded.
+!data/vrs/routes.csv
+!data/vrs/airports.csv
 web/node_modules/
 web/.next/
 web/out/

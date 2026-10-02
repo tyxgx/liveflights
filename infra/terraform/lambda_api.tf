@@ -134,10 +134,16 @@ resource "aws_apigatewayv2_stage" "api" {
 
   # Throttling: a demo endpoint on a $5 budget should fail loud (429) long
   # before it racks up a real Lambda/Athena bill from a traffic spike or
-  # accidental loop.
+  # accidental loop. Bumped from 10/5 to 20/10 (2026-09-29) after the
+  # tighter limit caused real, reproducible slowness on the dashboard's
+  # /api/flights/live?limit=6000 call under normal (not abusive) polling
+  # load from a single browser tab - found via live testing, not
+  # speculation. Someone had already raised this directly in AWS console
+  # (untracked drift, `terraform plan` showed it) before this comment;
+  # this just brings the code in line with what's actually running.
   default_route_settings {
-    throttling_burst_limit = 10
-    throttling_rate_limit  = 5
+    throttling_burst_limit = 20
+    throttling_rate_limit  = 10
   }
 
   access_log_settings {

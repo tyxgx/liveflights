@@ -30,6 +30,13 @@ stack creates:
                                          live snapshot + corridor centroids
   - GET /api/forecast/traffic         — real next-hours forecast from
                                          models/forecast_gbr.joblib
+  - GET /api/predictions              — all current GRU trajectory predictions,
+                                         from live/predictions.json (predict Lambda)
+  - GET /api/aircraft/{icao24}        — one aircraft's current state, recent
+                                         trail, prediction and scheduled route,
+                                         combined — the click-to-focus endpoint
+  - GET /api/stats/accuracy           — rolling prediction-vs-actual error by
+                                         day, from metrics/daily.json
 
 `/ws/flights` has no cloud equivalent; poll `/api/flights/live` instead.
 """
@@ -59,6 +66,16 @@ s3 = boto3.client("s3")
 LAKE_BUCKET = os.environ["LAKE_BUCKET"]
 LIVE_SNAPSHOT_KEY = "live/latest.json"
 HOURLY_STATS_KEY = "stats/hourly.json"
+PREDICTIONS_KEY = "live/predictions.json"
+HISTORY_KEY = "live/history.json"
+METRICS_KEY = "metrics/daily.json"
+# must match predict/handler.py's own HISTORY_FIELD_ORDER exactly (this Lambda only reads the
+# history the predict Lambda already parses the same way, never builds a model window itself)
+HISTORY_FIELD_ORDER = [
+    "lat", "lon", "alt_baro_m", "gs_ms", "track_deg", "vrate_baro_ms", "vrate_geom_ms", "roll_deg",
+    "track_rate", "true_heading", "mach", "tas_ms", "ias_ms", "wd_deg", "ws_ms", "nav_alt_mcp_m",
+    "nav_heading",
+]
 
 # Module-level caches: a warm Lambda container reuses these across
 # invocations instead of re-reading tiny S3 objects every request. Cold
@@ -358,6 +375,74 @@ def forecast_traffic(hours: int = 6) -> dict:
         )
 
     return {"trained_on_synthetic_history": False, "points": points}
+
+
+@app.get("/api/predictions")
+def predictions_live(limit: int = 6000) -> dict:
+    """All current GRU trajectory predictions, straight from live/predictions.json (predict
+    Lambda writes it every minute) - lightweight, no per-aircraft trail (that's
+    /api/aircraft/{icao24}), just enough for the map to draw every aircraft's predicted path."""
+    data = _load_json(PREDICTIONS_KEY, {})
+    items = list(data.items())[: min(limit, 6000)]
+    return {"count": len(items), "predictions": {icao: p for icao, p in items}}
+
+
+def _aircraft_trail(icao24: str, minutes: int) -> list[dict]:
+    """This aircraft's actual recent positions from live/history.json, as plain {ts, lat, lon}
+    points (not the full 17-field numeric row predict Lambda uses internally) - the dashboard's
+    "where it's actually been" line, drawn next to the model's predicted path."""
+    history = _load_json(HISTORY_KEY, {})
+    entry = history.get(icao24) or {}
+    readings = entry.get("readings") or []
+    lat_i, lon_i = HISTORY_FIELD_ORDER.index("lat"), HISTORY_FIELD_ORDER.index("lon")
+    cutoff = readings[-1][0] - minutes * 60 if readings else 0
+    return [
+        {"ts": r[0], "lat": r[1 + lat_i], "lon": r[1 + lon_i]} for r in readings if r[0] >= cutoff
+    ]
+
+
+@app.get("/api/aircraft/{icao24}")
+def aircraft_detail(icao24: str, trail_minutes: int = 15) -> dict:
+    """One aircraft, everything the click-to-focus dashboard view needs in one call: its current
+    state (from the live snapshot), its actual recent trail, the model's current prediction
+    (predicted path + the scheduled route, both already in live/predictions.json), and whether it
+    was found at all (a since-departed aircraft ages out of live data within ~20 minutes, see
+    lambda_ingest/handler.py's HISTORY_STALE_MINUTES)."""
+    flights = _live_flights().get("flights", [])
+    state = next((f for f in flights if f.get("icao24") == icao24), None)
+    prediction = _load_json(PREDICTIONS_KEY, {}).get(icao24)
+    trail = _aircraft_trail(icao24, trail_minutes)
+    return {
+        "icao24": icao24,
+        "found": state is not None or prediction is not None or bool(trail),
+        "state": state,
+        "trail": trail,
+        "prediction": prediction,
+        "route": (prediction or {}).get("route"),
+    }
+
+
+@app.get("/api/stats/accuracy")
+def stats_accuracy(days: int = 30) -> dict:
+    """Rolling prediction-vs-actual accuracy, from the permanent metrics/daily.json the predict
+    Lambda maintains (see that module's docstring) - the "how accurate are we" proof for the
+    dashboard, deliberately kept separate from the 7-day raw archive so this survives
+    indefinitely."""
+    data = _load_json(METRICS_KEY, {"days": []})
+    recent = data.get("days", [])[-days:]
+    return {"days": [_accuracy_day(d) for d in recent]}
+
+
+def _accuracy_day(d: dict) -> dict:
+    """median_km was added 2026-09-29 (see predict/handler.py's _update_metrics) - days written
+    before that have no stored median_km, so derive it here from the same sample_p90_km
+    reservoir every day already carries, rather than leaving old days with a hole in the chart."""
+    median_km = d.get("median_km")
+    sample = d.get("sample_p90_km")
+    if median_km is None and sample:
+        median_km = round(float(np.quantile(sample, 0.5)), 3)
+    return {"day": d["day"], "n": d["n"], "mean_km": d.get("mean_km"), "p90_km": d.get("p90_km"),
+            "median_km": median_km}
 
 
 handler = Mangum(app)

@@ -79,6 +79,10 @@ export function TopBar({
 }) {
   const { data } = usePolledData(api.overview, 15000);
   const mlPaused = data?.ml_paused ?? false;
+  // Live model accuracy (metrics/daily.json, the predict Lambda's real evaluation loop, 2026-09-28
+  // -) — today's row only; a fleet-wide instrument bar is not the place for a full history chart.
+  const { data: accuracyData } = usePolledData(() => api.accuracy(1), 60000);
+  const todayAccuracy = accuracyData?.days[accuracyData.days.length - 1];
 
   const [, forceTick] = useState(0);
   useEffect(() => {
@@ -111,6 +115,15 @@ export function TopBar({
           value={mlPaused ? "—" : formatNumber(data?.anomaly_count)}
           note={mlPaused ? "paused" : undefined}
           accent={mlPaused}
+        />
+        <Stat
+          label="Predict acc (5min)"
+          value={
+            todayAccuracy?.median_km != null
+              ? `±${todayAccuracy.median_km.toFixed(1)}km`
+              : "—"
+          }
+          note={todayAccuracy?.n ? `n=${todayAccuracy.n}, median` : undefined}
         />
       </div>
 

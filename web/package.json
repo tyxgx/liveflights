@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:prod": "bash scripts/build-prod.sh",
     "start": "next start",
     "lint": "next lint"
   },
