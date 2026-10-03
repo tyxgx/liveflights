@@ -1,5 +1,5 @@
 boto3==1.35.90
-numpy==2.5.1
+numpy==2.5.3
 # CPU-only inference; no GPU in Lambda. Pin whatever exported runs/full_B*/model.onnx (opset 17,
 # exported by ml/scratch/export_onnx.py) — bump only after re-testing that export's parity check.
 onnxruntime==1.30.0
