@@ -7,4 +7,4 @@ boto3==1.35.90
 # with whatever trains new artifacts.
 numpy==2.5.1
 scikit-learn==1.9.0
-joblib==1.5.3
+joblib==1.6.0
