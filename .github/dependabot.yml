@@ -17,3 +17,15 @@ updates:
   - package-ecosystem: docker
     directory: /api/cloud
     schedule: {interval: weekly}
+  # The two Lambda images install from their own requirements files, which the root uv.lock does not cover.
+  - package-ecosystem: pip
+    directory: /api/cloud
+    schedule: {interval: weekly}
+    open-pull-requests-limit: 2
+  - package-ecosystem: pip
+    directory: /predict
+    schedule: {interval: weekly}
+    open-pull-requests-limit: 2
+  - package-ecosystem: docker
+    directory: /predict
+    schedule: {interval: weekly}
