@@ -6,5 +6,5 @@ boto3==1.35.90
 # guaranteed compatible across versions, so this must move in lockstep
 # with whatever trains new artifacts.
 numpy==2.5.1
-scikit-learn==1.9.0
+scikit-learn==1.9.1
 joblib==1.5.3
