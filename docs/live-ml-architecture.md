@@ -1,5 +1,11 @@
 # Live trajectory prediction: architecture, decisions and risks (2026-09-26)
 
+> **Status, 2026-10-03.** This is the design written on 2026-09-26. Built and live: the ingest Lambda writing the live JSON files, the
+> predict Lambda (ONNX GRU, shared `ml/features.py`), the live evaluation loop (`metrics/`, `eval_log/`), the API endpoints and the dashboard's
+> click-to-focus panel. **Not built as designed:** CloudFront static JSON (CloudFront is not allowed on this account, so the browser polls the API),
+> the MapLibre/PMTiles map (the dashboard uses Leaflet), jitter/gap augmentation in training, and automated weekly retraining (retraining is a
+> manual Colab run). The per-decision status is tracked in the D1-D25 table of [liveflights-ml-journal.md](liveflights-ml-journal.md).
+
 Single source of truth for how the pieces connect. Every number marked *(est.)* is an estimate that
 must be measured before it is relied on. Facts marked *(verified)* were read from code or measured
 in a log.

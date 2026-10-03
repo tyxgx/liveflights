@@ -6,6 +6,23 @@ compute throughout, and a hard budget ceiling of **under $5/month**. This
 doc explains what got built, what got deliberately left out, and why — the
 "why" is the part worth reading.
 
+> **Current status (verified 2026-10-03; this supersedes the older notes below).**
+> - **Compute:** three Lambdas. `ingest` (Python 3.12, 256 MB) polls adsb.lol every minute from EventBridge Scheduler.
+>   `predict` (container, 1 GB) runs every minute: it runs the GRU through ONNX Runtime and scores earlier predictions
+>   against what actually happened. `api` (container, 512 MB) sits behind an API Gateway HTTP API.
+> - **Storage:** S3 only (`live/latest.json`, `live/predictions.json`, `live/history.json`, `live/pending.json`,
+>   `stats/hourly.json`, `metrics/`, `eval_log/`, `models/`). No DynamoDB, Athena, Glue or Step Functions.
+> - **ML is live.** It was paused in August, resumed statelessly at the end of August, and the GRU trajectory model has served
+>   since late September (`/api/stats/overview` returns `ml_paused: false`). Model files: `models/trajectory.onnx` and
+>   `models/trajectory_norm.json` in the lake bucket, also attached to the GitHub release `model-2026-09-28`;
+>   see [model-card.md](model-card.md) and [reproducing-the-model.md](reproducing-the-model.md).
+> - **CI/CD:** `deploy.yml` (test, terraform, dbt, api-image, audit) and `orchestration-verify.yml`. Deploys are applied by hand
+>   with Terraform; on 2026-10-03 `terraform plan` reported no difference between this repository and AWS.
+> - **Cost guard:** a gross-usage AWS budget of $10 per month (credits are not netted out).
+> - **Terraform state:** local only (`infra/terraform/terraform.tfstate`, gitignored). `bash scripts/backup_tfstate.sh` keeps timestamped copies under `~/job/backups/terraform-state/` and in the private lake bucket (`_backups/terraform/`); run it after every `terraform apply`.
+> - **Not as the older design notes say:** the browser polls the API (`/api/flights/live`, `/api/predictions`); there is no
+>   CloudFront (it cannot be created on this account) and the map is Leaflet, not MapLibre.
+
 > **Post-deployment update (Aug 2026):** the live region was switched from
 > India to Europe (an 8-point adsb.lol fan-out — see
 > `infra/terraform/variables.tf`'s `adsb_lol_points` — since one point+radius
@@ -25,8 +42,8 @@ doc explains what got built, what got deliberately left out, and why — the
 > objects (`live/latest.json`, fully overwritten every poll; `stats/
 > hourly.json`, a small rolling aggregate), with every stat the API serves
 > computed on the fly from those two files. ML (corridor discovery, anomaly
-> detection, trajectory tracking) is **paused**, not deleted from the
-> codebase — the sections below describing it are historical, not current.
+> detection, trajectory tracking) was **paused** at that point, not deleted from the
+> codebase (it has since been resumed, see the current-status box above) — the sections below describing it are historical, not current.
 > Expected cost is now a few cents/month. Most of "Architecture", "ML
 > scoring in the cloud", and the DynamoDB/Athena-specific parts of "What
 > changed in the API" below describe that earlier, now-removed

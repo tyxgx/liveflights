@@ -9,6 +9,8 @@ Real-time flight intelligence platform: OpenSky/simulated flight data streamed t
 | Dashboard | https://liveflights-prod-site-922120357133.s3.us-east-1.amazonaws.com/index.html |
 | API | https://11ze3w650d.execute-api.us-east-1.amazonaws.com |
 
+**Model:** the GRU that predicts aircraft positions 5 minutes ahead is attached to the GitHub release [`model-2026-09-28`](https://github.com/tyxgx/liveflights/releases/tag/model-2026-09-28) (ONNX, 1.4 MB). How it works and how well it does: [docs/model-card.md](docs/model-card.md). Rebuilding it from public data: [docs/reproducing-the-model.md](docs/reproducing-the-model.md).
+
 See [docs/aws-architecture.md](docs/aws-architecture.md) for the cloud architecture, the account-restriction story, and why this deployment runs a different region (Europe) from the local default.
 
 [![CI](https://github.com/tyxgx/liveflights/actions/workflows/deploy.yml/badge.svg)](https://github.com/tyxgx/liveflights/actions/workflows/deploy.yml)

@@ -256,22 +256,22 @@ A: Dependency check in section 7.3.
 | D7 | Baselines: straight line and constant turn rate | fair, no fake wins in turns | done in builder meta |
 | D8 | Train mix 40% uniform / 40% hard (straight error > 3 km) / 20% turning-or-vertical; val/test uniform | balance without bias in evaluation | done |
 | D9 | Splits by day (train 8 days, val 09-17, test 09-20 and 09-23) and by aircraft (20% of hex folders held out) | honest generalisation | done in builder |
-| D10 | Extras are inputs with masks; ablation A (core only) vs B (core + extras) | prove value | planned |
+| D10 | Extras are inputs with masks; ablation A (core only) vs B (core + extras) | prove value | done 2026-09-26: B beats A by 5.7% mean test error (see the 17:05 ABLATION entry) |
 | D11 | Validate every extra field against physics before training | wrong sign/unit poisons a model | done (3.5) |
 | D12 | Fast-changing object fields are interpolated, not held (schema 4) | track_rate held 90 s was stale | code done, re-extraction needed |
-| D13 | `dt_min` feature and jitter/gap augmentation | live spacing is irregular | dt_min in builder; augmentation planned |
-| D14 | One shared feature module for builder and Lambda | prevents train/serve skew | planned (must exist before serving) |
+| D13 | `dt_min` feature and jitter/gap augmentation | live spacing is irregular | dt_min in builder; jitter/gap augmentation not found in train_gru_v2.py (2026-10-03), still open |
+| D14 | One shared feature module for builder and Lambda | prevents train/serve skew | done: ml/features.py is vendored into the predict Lambda image (predict/Dockerfile) and used by build_windows_v2.py |
 | D15 | Live storage = Option B: no long archive; rolling 7-day raw (all fields, gzip) + history + predictions + permanent metrics | cost, simplicity, but keeps debug/parity | chosen 2026-09-26 |
-| D16 | Retrain about weekly from GitHub (extract new days, build, Colab) | live archive not needed | planned |
-| D17 | Separate PREDICT Lambda (ONNX), ingest stays small | reliability, package size | planned |
-| D18 | Hot path to browser = static JSON on CloudFront; API Gateway only for cached detail | 5 req/s throttle, cold starts | planned |
-| D19 | Map = MapLibre GL (WebGL) with own vector tiles; smooth extrapolation between updates | Leaflet DOM markers do not scale; OSM tile policy | planned (owner's yes pending) |
-| D20 | Click on aircraft: others fade; trail, curved prediction, past prediction vs actual, VRS route, details | product requirement | spec in architecture doc |
+| D16 | Retrain about weekly from GitHub (extract new days, build, Colab) | live archive not needed | manual: retrained by hand in Colab, not automated (2026-10-03) |
+| D17 | Separate PREDICT Lambda (ONNX), ingest stays small | reliability, package size | done: predict Lambda deployed (infra/terraform/lambda_predict.tf) |
+| D18 | Hot path to browser = static JSON on CloudFront; API Gateway only for cached detail | 5 req/s throttle, cold starts | not built: CloudFront cannot be created on this account; the browser polls the API (/api/flights/live, /api/predictions) |
+| D19 | Map = MapLibre GL (WebGL) with own vector tiles; smooth extrapolation between updates | Leaflet DOM markers do not scale; OSM tile policy | not built: the dashboard still uses Leaflet (web/package.json) |
+| D20 | Click on aircraft: others fade; trail, curved prediction, past prediction vs actual, VRS route, details | product requirement | built: AircraftDetailPanel + selection in AircraftLayer (GRU prediction, scheduled route, accuracy) |
 | D21 | Routes/airline/aircraft names from VRS data (CC0) | free, static | data downloaded |
 | D22 | Contact adsb.lol about production use; show attributions (adsb.lol ODbL, OSM, VRS) | terms | pending (owner) |
 | D23 | Measure live 429 dropout (`check_data_quality.py` v3) | decides gap handling | pending run |
 | D24 | Old S3 bronze (16 fields) is kept as the serving-like test set for the core-field model | only real live-format data we have | keep, do not delete |
-| D25 | AWS spending must stay small; credits allowed; raise the $5 budget alert when shipping | owner preference | pending at deploy |
+| D25 | AWS spending must stay small; credits allowed; raise the $5 budget alert when shipping | owner preference | done: gross-usage budget raised to $10 (infra/terraform/budgets.tf) |
 
 ---------------------------------------------------------------------------------------------------
 
