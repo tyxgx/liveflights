@@ -1,0 +1,8 @@
+{
+  "name": "liveflights-perf-probe",
+  "private": true,
+  "type": "module",
+  "description": "Headless-Chrome probe that measures the live dashboard (uses the installed Chrome, downloads no browser)",
+  "scripts": { "probe": "node probe.mjs" },
+  "dependencies": { "puppeteer-core": "^24.0.0" }
+}

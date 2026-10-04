@@ -16,7 +16,7 @@ Steps marked **apply** need a `terraform apply` run by the owner (the agent envi
 | # | Step | Kind | Status |
 |---|---|---|---|
 | 01 | [AWS cost and consumption audit](01-aws-cost-audit.md) | audit | done 2026-10-04 |
-| 02 | Baseline performance measurement (Lighthouse + long-task probe + API timings) | measure | planned |
+| 02 | [Baseline performance measurement](02-baseline-measurement.md) (headless-Chrome probe) | measure | done 2026-10-04 |
 | 03 | Stop the 500 ms full-page re-render (imperative interpolation) | frontend | planned |
 | 04 | Poll hygiene: in-flight guard, pause when the tab is hidden | frontend | planned |
 | 05 | Real `build:prod` plus compressed, cached site deploy | deploy | planned |
