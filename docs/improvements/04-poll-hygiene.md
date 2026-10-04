@@ -57,7 +57,7 @@ Same test, old code vs new code (raw output in `docs/improvements/data/step04-hy
 - **Frame rate did not change, and this step does not claim it would.** The step 04 probe runs (30 s, prod API)
   were dominated by API behaviour, not by rendering: one run saw a 503 and a 19.5 s slowest call, with the first
   aircraft at 21 s, because the live API was throttling at that moment. They are kept in `data/step04-cpu{1,4}.json`
-  for completeness but are not a before/after comparison. Rendering cost is addressed in steps 07 and 08.
+  for completeness but are not a before/after comparison. Rendering cost is addressed in steps 07 and 09.
 - Not covered: the "before" run of the third check is not meaningful (the old code never stopped polling), and the
   test was run in headless Chrome, not on a phone.
 
