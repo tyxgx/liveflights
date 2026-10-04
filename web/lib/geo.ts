@@ -44,3 +44,39 @@ export function haversineKm(a: [number, number], b: [number, number]): number {
     Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLon / 2) ** 2;
   return 6371.0088 * 2 * Math.asin(Math.sqrt(s));
 }
+
+const EARTH_RADIUS_M = 6_371_000;
+
+/**
+ * Dead-reckoning projection: given a flight's last known position, where it will be `elapsedSeconds`
+ * later along its true track at its current speed. Great-circle forward geodesic, not a linear
+ * lat/lon nudge (which distorts badly at high latitude or over any real distance).
+ */
+export function projectPosition(
+  lat: number,
+  lon: number,
+  trueTrackDeg: number,
+  velocityMps: number,
+  elapsedSeconds: number,
+): [number, number] {
+  const distance = velocityMps * elapsedSeconds;
+  if (distance === 0) return [lat, lon];
+
+  const angularDistance = distance / EARTH_RADIUS_M;
+  const bearing = (trueTrackDeg * Math.PI) / 180;
+  const lat1 = (lat * Math.PI) / 180;
+  const lon1 = (lon * Math.PI) / 180;
+
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angularDistance) +
+      Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing),
+  );
+  const lon2 =
+    lon1 +
+    Math.atan2(
+      Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
+      Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2),
+    );
+
+  return [(lat2 * 180) / Math.PI, (((lon2 * 180) / Math.PI + 540) % 360) - 180];
+}

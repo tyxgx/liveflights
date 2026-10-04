@@ -1,6 +1,7 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
+import { useMemo } from "react";
 import { MapContainer, TileLayer, ZoomControl } from "react-leaflet";
 import { AircraftLayer } from "@/components/map/AircraftLayer";
 import { AirportLayer } from "@/components/map/AirportLayer";
@@ -47,6 +48,8 @@ export interface FlightMapProps {
   /** Compare mode's second aircraft — see AircraftDetailPanel's "Compare" button. */
   compareIcao24?: string | null;
   compareDetail?: AircraftDetailResponse | null;
+  /** When the `flights` positions were true (ms). Aircraft glide forward from there between polls. Null = already live. */
+  positionsAsOf?: number | null;
 }
 
 // Default export required for next/dynamic({ ssr: false }) — Leaflet
@@ -68,10 +71,13 @@ export default function FlightMap({
   onDeselect,
   compareIcao24 = null,
   compareDetail = null,
+  positionsAsOf = null,
 }: FlightMapProps) {
-  const visibleFlights = anomaliesOnly
-    ? flights.filter((f) => anomalyByIcao.has(f.icao24))
-    : flights;
+  // memoised: a fresh array on every render would look like a new poll to AircraftLayer and snap every aircraft back
+  const visibleFlights = useMemo(
+    () => (anomaliesOnly ? flights.filter((f) => anomalyByIcao.has(f.icao24)) : flights),
+    [anomaliesOnly, flights, anomalyByIcao],
+  );
 
   return (
     <MapContainer
@@ -102,6 +108,7 @@ export default function FlightMap({
           compareIcao24={compareIcao24}
           anomalyByIcao={anomalyByIcao}
           onSelect={onSelectFlight}
+          interpolateFrom={positionsAsOf}
         />
       )}
       <PredictionLayer detail={aircraftDetail} accent="#22d3ee" />

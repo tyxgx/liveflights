@@ -237,6 +237,7 @@ export default function DashboardPage() {
               onDeselect={closeDetail}
               compareIcao24={compareIcao24}
               compareDetail={compareDetail}
+              positionsAsOf={CLOUD_MODE ? lastMessageAt : null}
             />
             <EmergencyBanner emergencies={emergencies} />
             {selectedIcao24 && (
