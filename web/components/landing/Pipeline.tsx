@@ -2,84 +2,114 @@
 
 import { Reveal } from "@/components/landing/Reveal";
 
-interface Block {
-  n: string;
-  title: string;
-  lead: string;
-  points: string[];
+// One diagram, as few words as possible. Everything here is deployed today.
+interface Node {
+  name: string;
+  note?: string;
+  accent?: boolean;
 }
 
-// Three plain questions a visitor has. Everything below describes what is deployed today.
-const BLOCKS: Block[] = [
+interface Lane {
+  n: string;
+  title: string;
+  sub: string;
+  nodes: Node[];
+}
+
+const LANES: Lane[] = [
   {
     n: "1",
-    title: "Where the data comes from",
-    lead: "adsb.lol, a community network of volunteer radio receivers that pick up the position signal every aircraft broadcasts (ADS-B).",
-    points: [
-      "8 points across Europe are asked for their aircraft (each covers a 250 nm circle, the most the service allows), then merged and de-duplicated by aircraft address.",
-      "It is real traffic, not a simulation. It is also not every aircraft: it depends on where volunteers have receivers.",
+    title: "Data comes from",
+    sub: "outside AWS",
+    nodes: [
+      { name: "Aircraft", note: "broadcast position (ADS-B)" },
+      { name: "adsb.lol", note: "volunteer receivers · 8 points over Europe", accent: true },
     ],
   },
   {
     n: "2",
-    title: "How it is processed",
-    lead: "Once a minute a scheduled AWS Lambda does the work. Nothing runs between polls.",
-    points: [
-      "It writes the current snapshot to S3, a small compressed copy for the map, a raw archive of every reading, and an hourly traffic summary.",
-      "A second Lambda runs a PyTorch model (GRU, exported to ONNX) that predicts where each aircraft will be in 5 minutes. Each prediction is later compared with the real position, and the median error is shown on the dashboard.",
-      "Corridors (busy routes) and unusual flights are found by models trained on 28 days of past data.",
+    title: "Processed",
+    sub: "AWS · every minute",
+    nodes: [
+      { name: "Scheduler", note: "1 / min" },
+      { name: "Ingest Lambda", note: "fetch · merge · save", accent: true },
+      { name: "S3", note: "snapshot · map file · raw archive" },
+      { name: "Predict Lambda", note: "GRU model → position in 5 min", accent: true },
     ],
   },
   {
     n: "3",
-    title: "How it is shown",
-    lead: "A static web page on S3. There is no server behind it while you browse.",
-    points: [
-      "Every 15 seconds the page fetches the small snapshot (about 140 KB) and moves each aircraft along its real heading and speed between updates.",
-      "The side panels (countries, altitude, traffic over time) are calculated from the same snapshot by a small API.",
-      "Click an aircraft to see its details and where the model expects it to be next.",
+    title: "Shown",
+    sub: "your browser",
+    nodes: [
+      { name: "Map file", note: "140 KB, straight from S3" },
+      { name: "Web page", note: "static · polls every 15 s", accent: true },
+      { name: "API Lambda", note: "panel stats" },
     ],
   },
 ];
 
+function Arrow({ className = "" }: { className?: string }) {
+  return (
+    <span aria-hidden className={`select-none text-accent-cyan/60 ${className}`}>
+      ↓
+    </span>
+  );
+}
+
 export function Pipeline() {
   return (
-    <section id="pipeline" className="mx-auto max-w-4xl px-6 py-24 sm:px-10">
+    <section id="pipeline" className="mx-auto max-w-5xl px-6 py-24 sm:px-10">
       <Reveal>
         <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-accent-cyan">How it works</p>
-        <h2 className="mb-4 text-3xl font-bold text-ink sm:text-4xl">From a radio signal to a dot on the map.</h2>
-        <p className="mb-12 max-w-2xl text-ink-muted">
-          This is a working demonstration, not a product. Each step below runs on AWS right now; the numbers above come from it.
-        </p>
+        <h2 className="mb-10 text-3xl font-bold text-ink sm:text-4xl">From a radio signal to a dot on the map.</h2>
       </Reveal>
 
-      <div className="flex flex-col gap-6">
-        {BLOCKS.map((b, i) => (
-          <Reveal key={b.n} delay={i * 60}>
-            <div className="glass-panel rounded-lg p-6">
-              <div className="mb-3 flex items-center gap-3">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full border border-accent-cyan/40 font-mono text-[11px] text-accent-cyan">
-                  {b.n}
+      <div className="grid gap-4 md:grid-cols-3 md:gap-6">
+        {LANES.map((lane, i) => (
+          <Reveal key={lane.n} delay={i * 80}>
+            <div className="glass-panel relative h-full rounded-lg p-5">
+              <div className="mb-4 flex items-baseline gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full border border-accent-cyan/40 font-mono text-[11px] text-accent-cyan">
+                  {lane.n}
                 </span>
-                <h3 className="text-lg font-semibold text-ink">{b.title}</h3>
+                <h3 className="text-[15px] font-semibold text-ink">{lane.title}</h3>
+                <span className="font-mono text-[10px] uppercase tracking-wider text-ink-faint">{lane.sub}</span>
               </div>
-              <p className="mb-3 text-[14px] leading-relaxed text-ink">{b.lead}</p>
-              <ul className="flex flex-col gap-2">
-                {b.points.map((p) => (
-                  <li key={p} className="text-[13px] leading-relaxed text-ink-muted">
-                    {p}
-                  </li>
+              <div className="flex flex-col items-stretch gap-1.5">
+                {lane.nodes.map((node, j) => (
+                  <div key={node.name} className="flex flex-col items-center gap-1.5">
+                    <div
+                      className={`w-full rounded-md border px-3 py-2 ${
+                        node.accent ? "border-accent-cyan/40 bg-accent-cyan/[0.06]" : "border-border bg-white/[0.02]"
+                      }`}
+                    >
+                      <div className="text-[13px] font-medium text-ink">{node.name}</div>
+                      {node.note && <div className="text-[11px] text-ink-muted">{node.note}</div>}
+                    </div>
+                    {j < lane.nodes.length - 1 && <Arrow className="text-xs leading-none" />}
+                  </div>
                 ))}
-              </ul>
+              </div>
+              {i < LANES.length - 1 && (
+                <span
+                  aria-hidden
+                  className="absolute -bottom-3.5 left-1/2 -translate-x-1/2 text-accent-cyan/60 md:-right-4 md:bottom-auto md:left-auto md:top-1/2 md:-translate-y-1/2 md:translate-x-0 md:rotate-[-90deg]"
+                >
+                  ↓
+                </span>
+              )}
             </div>
           </Reveal>
         ))}
       </div>
 
-      <Reveal delay={200}>
-        <p className="mt-6 text-[12px] leading-relaxed text-ink-faint">
-          Limits: coverage is Europe only and depends on volunteer receivers; predictions are an experiment, so the accuracy is
-          shown live rather than claimed. <a className="text-accent-cyan hover:underline" href="https://github.com/tyxgx/liveflights" target="_blank" rel="noreferrer">Source and docs on GitHub</a>.
+      <Reveal delay={240}>
+        <p className="mt-8 text-[12px] text-ink-faint">
+          Real traffic, Europe only, not every aircraft. Predictions are an experiment: the dashboard shows their live error.{" "}
+          <a className="text-accent-cyan hover:underline" href="https://github.com/tyxgx/liveflights" target="_blank" rel="noreferrer">
+            Source
+          </a>
         </p>
       </Reveal>
     </section>

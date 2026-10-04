@@ -5,7 +5,6 @@ import { Hero } from "@/components/landing/Hero";
 import { LiveTicker } from "@/components/landing/LiveTicker";
 import { Pipeline } from "@/components/landing/Pipeline";
 import { TechStack } from "@/components/landing/TechStack";
-import { EngineeringNotes } from "@/components/landing/EngineeringNotes";
 import { Features } from "@/components/landing/Features";
 import { Footer } from "@/components/landing/Footer";
 
@@ -18,7 +17,6 @@ export default function LandingPage() {
       <Pipeline />
       <Features />
       <TechStack />
-      <EngineeringNotes />
       <Footer />
     </main>
   );
