@@ -128,6 +128,9 @@ export function TopBar({
       </div>
 
       <div className="ml-auto flex flex-shrink-0 items-center gap-4 text-[11px] text-ink-faint">
+        <a href="/index.html#pipeline" className="text-ink-muted transition-colors hover:text-accent-cyan">
+          How it works
+        </a>
         <span className="hidden font-mono tabular-nums lg:inline">{sourceLabel(source)}</span>
         <span className="flex items-center gap-1.5 font-mono tabular-nums">
           <span className={`inline-block h-1.5 w-1.5 rounded-full ${pollStatusColor(pollStatus)}`} />

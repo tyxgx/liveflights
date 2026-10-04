@@ -2,92 +2,86 @@
 
 import { Reveal } from "@/components/landing/Reveal";
 
-interface Step {
+interface Block {
   n: string;
   title: string;
-  detail: string;
-  tag: string;
+  lead: string;
+  points: string[];
 }
 
-const STEPS: Step[] = [
+// Three plain questions a visitor has. Everything below describes what is deployed today.
+const BLOCKS: Block[] = [
   {
-    n: "01",
-    title: "adsb.lol — real transponder broadcasts",
-    detail:
-      "8 hub points across Europe (250nm radius each — adsb.lol's hard cap, one point can't cover a continent), fetched concurrently with staggered timing and retry-on-429 to stay under its rate limit, then merged and deduped by icao24.",
-    tag: "Data source",
+    n: "1",
+    title: "Where the data comes from",
+    lead: "adsb.lol, a community network of volunteer radio receivers that pick up the position signal every aircraft broadcasts (ADS-B).",
+    points: [
+      "8 points across Europe are asked for their aircraft (each covers a 250 nm circle, the most the service allows), then merged and de-duplicated by aircraft address.",
+      "It is real traffic, not a simulation. It is also not every aircraft: it depends on where volunteers have receivers.",
+    ],
   },
   {
-    n: "02",
-    title: "EventBridge Scheduler — every 1 minute",
-    detail:
-      "Invokes the ingest Lambda on a fixed schedule. No queue, no always-on worker — the whole ingestion side only runs for the ~seconds it takes to fetch and write, once a minute.",
-    tag: "AWS EventBridge",
+    n: "2",
+    title: "How it is processed",
+    lead: "Once a minute a scheduled AWS Lambda does the work. Nothing runs between polls.",
+    points: [
+      "It writes the current snapshot to S3, a small compressed copy for the map, a raw archive of every reading, and an hourly traffic summary.",
+      "A second Lambda runs a PyTorch model (GRU, exported to ONNX) that predicts where each aircraft will be in 5 minutes. Each prediction is later compared with the real position, and the median error is shown on the dashboard.",
+      "Corridors (busy routes) and unusual flights are found by models trained on 28 days of past data.",
+    ],
   },
   {
-    n: "03",
-    title: "Ingest Lambda — fetch, merge, write",
-    detail:
-      "Writes live/latest.json (the full current snapshot, fully overwritten — one S3 PUT per poll) and stats/hourly.json (a small rolling 48h aggregate). Also streams a raw archival copy to S3 via Kinesis Firehose for later analysis.",
-    tag: "AWS Lambda · Python",
-  },
-  {
-    n: "04",
-    title: "API Lambda — stats computed on the fly",
-    detail:
-      "A FastAPI app behind API Gateway reads those two small S3 objects and computes every stat in plain Python — active flights, top countries, airline activity, altitude distribution, hourly traffic. No database, no query engine, no warehouse in the loop.",
-    tag: "API Gateway · FastAPI",
-  },
-  {
-    n: "05",
-    title: "Dashboard — polls every 15 seconds",
-    detail:
-      "A static Next.js app on S3 polls the live endpoint and dead-reckons each aircraft's position between polls using its real heading and velocity, so movement on the map reads smooth, not stepped.",
-    tag: "Next.js · Leaflet",
+    n: "3",
+    title: "How it is shown",
+    lead: "A static web page on S3. There is no server behind it while you browse.",
+    points: [
+      "Every 15 seconds the page fetches the small snapshot (about 140 KB) and moves each aircraft along its real heading and speed between updates.",
+      "The side panels (countries, altitude, traffic over time) are calculated from the same snapshot by a small API.",
+      "Click an aircraft to see its details and where the model expects it to be next.",
+    ],
   },
 ];
 
 export function Pipeline() {
   return (
-    <section id="pipeline" className="mx-auto max-w-5xl px-6 py-24 sm:px-10">
+    <section id="pipeline" className="mx-auto max-w-4xl px-6 py-24 sm:px-10">
       <Reveal>
-        <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-accent-cyan">
-          How it actually works
-        </p>
-        <h2 className="mb-4 text-3xl font-bold text-ink sm:text-4xl">One request, five hops, no idle cost.</h2>
-        <p className="mb-14 max-w-2xl text-ink-muted">
-          Every hop below is a real, currently-deployed AWS resource — not a diagram of a plan. The
-          whole pipeline scales to zero between polls: nothing runs continuously except the schedule
-          itself.
+        <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-accent-cyan">How it works</p>
+        <h2 className="mb-4 text-3xl font-bold text-ink sm:text-4xl">From a radio signal to a dot on the map.</h2>
+        <p className="mb-12 max-w-2xl text-ink-muted">
+          This is a working demonstration, not a product. Each step below runs on AWS right now; the numbers above come from it.
         </p>
       </Reveal>
 
-      <div className="relative">
-        <div className="absolute bottom-0 left-[15px] top-2 hidden w-px bg-gradient-to-b from-accent-cyan/40 via-border to-transparent sm:block" />
-        <div className="flex flex-col gap-8">
-          {STEPS.map((s, i) => (
-            <Reveal key={s.n} delay={i * 60}>
-              <div className="relative flex gap-5 pl-0 sm:pl-10">
-                <div className="absolute left-0 top-1 hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-accent-cyan/40 bg-base font-mono text-[11px] text-accent-cyan sm:flex">
-                  {s.n}
-                </div>
-                <div className="glass-panel w-full rounded-lg p-5">
-                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-[10px] uppercase tracking-wider text-accent-teal sm:hidden">
-                      {s.n}
-                    </span>
-                    <h3 className="text-base font-semibold text-ink">{s.title}</h3>
-                    <span className="rounded bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-ink-faint">
-                      {s.tag}
-                    </span>
-                  </div>
-                  <p className="text-[13px] leading-relaxed text-ink-muted">{s.detail}</p>
-                </div>
+      <div className="flex flex-col gap-6">
+        {BLOCKS.map((b, i) => (
+          <Reveal key={b.n} delay={i * 60}>
+            <div className="glass-panel rounded-lg p-6">
+              <div className="mb-3 flex items-center gap-3">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full border border-accent-cyan/40 font-mono text-[11px] text-accent-cyan">
+                  {b.n}
+                </span>
+                <h3 className="text-lg font-semibold text-ink">{b.title}</h3>
               </div>
-            </Reveal>
-          ))}
-        </div>
+              <p className="mb-3 text-[14px] leading-relaxed text-ink">{b.lead}</p>
+              <ul className="flex flex-col gap-2">
+                {b.points.map((p) => (
+                  <li key={p} className="text-[13px] leading-relaxed text-ink-muted">
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </Reveal>
+        ))}
       </div>
+
+      <Reveal delay={200}>
+        <p className="mt-6 text-[12px] leading-relaxed text-ink-faint">
+          Limits: coverage is Europe only and depends on volunteer receivers; predictions are an experiment, so the accuracy is
+          shown live rather than claimed. <a className="text-accent-cyan hover:underline" href="https://github.com/tyxgx/liveflights" target="_blank" rel="noreferrer">Source and docs on GitHub</a>.
+        </p>
+      </Reveal>
     </section>
   );
 }

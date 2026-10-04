@@ -24,6 +24,12 @@ export function Nav() {
       </a>
       <div className="flex items-center gap-2 sm:gap-4">
         <a
+          href="/index.html#pipeline"
+          className="hidden text-[13px] text-ink-muted transition-colors hover:text-ink sm:inline"
+        >
+          How it works
+        </a>
+        <a
           href="https://github.com/tyxgx/liveflights"
           target="_blank"
           rel="noreferrer"
