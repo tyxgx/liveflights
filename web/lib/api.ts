@@ -25,12 +25,24 @@ export class ApiError extends Error {
   }
 }
 
-async function get<T>(path: string): Promise<T> {
+/** Hard ceiling for one request. Without it a hung Lambda leaves a poll "in flight" for as long as the browser allows. */
+const REQUEST_TIMEOUT_MS = 25_000;
+
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const controller = new AbortController();
+  const onCallerAbort = () => controller.abort();
+  signal?.addEventListener("abort", onCallerAbort);
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(`${BASE_URL}${path}`, { cache: "no-store" });
-  } catch {
+    res = await fetch(`${BASE_URL}${path}`, { cache: "no-store", signal: controller.signal });
+  } catch (err) {
+    // a deliberate cancel (unmount, tab hidden) is not an API failure; let callers tell the two apart
+    if (signal?.aborted) throw err;
     throw new ApiError(`Could not reach the API at ${BASE_URL}`);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onCallerAbort);
   }
   if (!res.ok) {
     throw new ApiError(`${path} failed with ${res.status}`, res.status);
@@ -40,7 +52,8 @@ async function get<T>(path: string): Promise<T> {
 
 export const api = {
   health: () => get<HealthResponse>("/health"),
-  liveFlights: (limit = 1000) => get<LiveFlightsResponse>(`/api/flights/live?limit=${limit}`),
+  liveFlights: (limit = 1000, signal?: AbortSignal) =>
+    get<LiveFlightsResponse>(`/api/flights/live?limit=${limit}`, signal),
   trajectory: (icao24: string) => get<TrajectoryResponse>(`/api/flights/${icao24}/trajectory`),
   overview: () => get<OverviewStats>("/api/stats/overview"),
   trafficByHour: () => get<TrafficByHourResponse>("/api/stats/traffic-by-hour"),

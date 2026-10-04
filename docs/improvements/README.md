@@ -18,7 +18,7 @@ Steps marked **apply** need a `terraform apply` run by the owner (the agent envi
 | 01 | [AWS cost and consumption audit](01-aws-cost-audit.md) | audit | done 2026-10-04 |
 | 02 | [Baseline performance measurement](02-baseline-measurement.md) (headless-Chrome probe) | measure | done 2026-10-04 |
 | 03 | [Stop the 500 ms full-page re-render](03-stop-the-full-rerender.md) (imperative interpolation) | frontend | done 2026-10-04, ships with 05 |
-| 04 | Poll hygiene: in-flight guard, pause when the tab is hidden | frontend | planned |
+| 04 | [Poll hygiene](04-poll-hygiene.md): in-flight guard, abort, pause when the tab is hidden | frontend | done 2026-10-04, ships with 05 |
 | 05 | Real `build:prod` plus compressed, cached site deploy | deploy | planned |
 | 06 | Ingest Lambda: memory, phase timings, history file size | infra, **apply** | planned |
 | 07 | Static pre-gzipped map JSON straight from S3 (no Lambda in the hot path) | infra + frontend, **apply** | planned |
