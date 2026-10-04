@@ -67,7 +67,7 @@ address (a static pre-compressed snapshot from S3, and a faster ingest).
   runs differ; the main-thread and bytes figures are the reliable ones, the first-aircraft time is not.
 - S3 cannot negotiate encodings: a client that does not send `Accept-Encoding: gzip` would still receive gzip. Every
   current browser sends it, so this is accepted for a static demo site.
-- 80.7 % blocked at CPU 4x is still high: the 3,600 DOM markers are the remaining cost (step 08).
+- 80.7 % blocked at CPU 4x is still high: the 3,600 DOM markers are the remaining cost (step 09).
 
 **Rollback:** re-run the old `aws s3 sync out/ s3://liveflights-prod-site-922120357133/ --delete` from the previous
 commit's build, or `git revert` and `pnpm deploy:prod`.
