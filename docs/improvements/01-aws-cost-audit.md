@@ -40,8 +40,8 @@ For every service in use: how much it is consumed, what it costs gross, how much
 | Function | Memory | Invocations / 7 days | Average | Slowest | Errors | Throttles | GB-s per month |
 |---|---|---|---|---|---|---|---|
 | liveflights-prod-ingest | 256 MB | 10,079 | **18.4 s** | 72.6 s (timeout 90 s) | 0 | 0 | 198,000 |
-| liveflights-prod-predict | 1 GB | 8,187 | 2.6 s | 67.3 s (timeout 60 s) | **32** | 0 | 92,000 |
-| liveflights-prod-api | 512 MB | 3,358 | 0.48 s | 36.9 s | 1 | **202** | 3,400 |
+| liveflights-prod-predict | 1 GB | 8,187 | 2.6 s | 67.3 s | 32 (all on 2026-09-28, the launch day; 0 since) | 0 | 92,000 |
+| liveflights-prod-api | 512 MB | 3,358 | 0.48 s | 36.9 s | 1 | **202** (9 on 09-28, 21 on 09-29, 172 on 10-02) | 3,400 |
 | streampulse-chat | 1.5 GB | 19 | 4.0 s | 16.8 s | 0 | 0 | 490 |
 | **Total** | | | | | | | **about 294,000 of 400,000 (74%)** |
 
@@ -51,9 +51,12 @@ For every service in use: how much it is consumed, what it costs gross, how much
 2. **The ingest Lambda is two thirds of all Lambda usage and takes 18 seconds a run.** Logs show about 11 s fetching from adsb.lol (rate limits answer HTTP 429 and
    force retries) and about 8 s afterwards, most of it reading, parsing, updating and writing back `live/history.json`, which is about 10 MB, on a 256 MB function
    (roughly 0.15 vCPU). Max memory used is 190 MB, so memory cannot simply be cut, but it can be raised: Lambda CPU scales with memory.
-3. **Users really were being failed.** The API Lambda was throttled 202 times in a week. The account's total Lambda concurrency is 10, shared with the other
-   project, and one dashboard load fires several slow requests at once. This is a direct cause of the "glitch" users see (a failed poll shows as "reconnecting").
-4. **The predict Lambda times out occasionally** (32 errors out of 8,187, 0.4%), consistent with a cold start plus the big history file.
+3. **Users really were being failed, in bursts.** The API Lambda was throttled 202 times in a week (172 of them on 2026-10-02). The account's total Lambda
+   concurrency is 10, shared with the other project, and one dashboard load fires several slow requests at once, so a few simultaneous visitors or tests are enough
+   to hit the ceiling. A throttled poll shows as "reconnecting": a direct cause of the glitch users see.
+4. **The predict Lambda is healthy now.** Its 32 errors all happened on 2026-09-28, the day it was first deployed and tuned (the journal records the first runs
+   timing out and then running out of memory); there have been none since. I first suspected ongoing timeouts, searched the logs for "Task timed out", found none,
+   and checked the errors per day instead.
 5. **Nothing risky is running:** no EC2, EBS, Elastic IP, NAT, RDS or load balancer in any region.
 
 ### Budgets
