@@ -30,6 +30,8 @@ export interface LiveFlight {
 }
 
 export interface LiveFlightsResponse {
+  /** when the ingest Lambda wrote this snapshot (ISO); absent on old responses */
+  updated_at?: string | null;
   count: number;
   flights: LiveFlight[];
 }

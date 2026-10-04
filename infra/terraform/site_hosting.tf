@@ -48,3 +48,17 @@ resource "aws_s3_bucket_policy" "site" {
   policy     = data.aws_iam_policy_document.site_bucket_policy.json
   depends_on = [aws_s3_bucket_public_access_block.site]
 }
+
+# Browsers on the S3 website endpoint (http://...s3-website-...) or on localhost fetch live/map.json from the REST
+# endpoint, which is a different origin: allow plain GETs. The bucket is already public-read and holds only the
+# static site plus this public snapshot, so "*" exposes nothing new.
+resource "aws_s3_bucket_cors_configuration" "site" {
+  bucket = aws_s3_bucket.site.id
+
+  cors_rule {
+    allowed_methods = ["GET", "HEAD"]
+    allowed_origins = ["*"]
+    allowed_headers = ["*"]
+    max_age_seconds = 3600
+  }
+}

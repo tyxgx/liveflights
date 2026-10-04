@@ -20,8 +20,8 @@ Steps marked **apply** need a `terraform apply` run by the owner (the agent envi
 | 03 | [Stop the 500 ms full-page re-render](03-stop-the-full-rerender.md) (imperative interpolation) | frontend | done and live 2026-10-04 (deployed in 05) |
 | 04 | [Poll hygiene](04-poll-hygiene.md): in-flight guard, abort, pause when the tab is hidden | frontend | done and live 2026-10-04 (deployed in 05) |
 | 05 | [Compressed, cached deploy](05-compressed-cached-deploy.md): `pnpm deploy:prod` | deploy | done and live 2026-10-04 |
-| 06 | Ingest Lambda: memory, phase timings, history file size | infra, **apply** | planned |
-| 07 | Static pre-gzipped map JSON straight from S3 (no Lambda in the hot path) | infra + frontend, **apply** | planned |
+| 06 | [Ingest timings + memory](06-ingest-timings-and-memory.md): see where 18 s goes, 256 to 512 MB | infra | written, **needs `terraform apply`** (result pending) |
+| 07 | [Static pre-gzipped map snapshot from S3](07-static-map-snapshot.md) (+ corridors loaded once) | infra + frontend | frontend live; infra needs the same `terraform apply` |
 | 08 | Canvas renderer behind a flag, compare, then switch | frontend | planned |
 | 09 | New features: live accuracy page, replay slider, deep links and skeletons, status page | features | planned |
 

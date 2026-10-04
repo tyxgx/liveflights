@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { LiveFlight } from "@/types/api";
+import type { LiveFlight, LiveFlightsResponse } from "@/types/api";
 
 export type PollStatus = "connecting" | "open" | "reconnecting" | "closed";
 
 const POLL_INTERVAL_MS = 15000;
+/** A map snapshot older than this is treated as missing (ingest stalled) and the API is asked instead. */
+const SNAPSHOT_MAX_AGE_MS = 180_000;
 /**
  * Polls /api/flights/live every 15s (the cloud API is Lambda-backed — there's no WebSocket to
  * push updates). `flights` changes ONLY when a poll lands. Smooth motion between polls is done
@@ -26,6 +28,7 @@ export function useFlightsPolling(enabled: boolean = true) {
     let cancelled = false;
     let inFlight = false;
     let lastOkAt = 0;
+    let lastSnapshotAt: string | null | undefined;
     const controller = new AbortController();
 
     async function poll() {
@@ -34,16 +37,34 @@ export function useFlightsPolling(enabled: boolean = true) {
       if (inFlight || cancelled || document.hidden) return;
       inFlight = true;
       try {
-        // 1000 silently truncated a full-Europe snapshot (~3,600+ and
-        // climbing) to whatever happened to be first in the API's list —
-        // which skews toward one geographic hub (whichever adsb.lol point
-        // responded fastest that poll), not a random cross-section. The map
-        // was rendering ~100% British Isles and nothing else as a result.
-        // 6000 comfortably covers current + headroom; matches the API's cap.
-        const res = await api.liveFlights(6000, controller.signal);
+        // Preferred: the pre-gzipped snapshot straight from S3 (~140 KB, no Lambda). Fallback, if it is
+        // missing, unreachable or older than SNAPSHOT_MAX_AGE_MS: the API call below.
+        let res: LiveFlightsResponse | null = null;
+        const snapshot = api.liveSnapshot(controller.signal);
+        if (snapshot) {
+          try {
+            const snap = await snapshot;
+            const ageMs = snap.updated_at ? Date.now() - Date.parse(snap.updated_at) : Infinity;
+            if (snap.flights.length > 0 && ageMs < SNAPSHOT_MAX_AGE_MS) res = snap;
+          } catch {
+            if (controller.signal.aborted) return;
+          }
+        }
+        if (!res) {
+          // 1000 silently truncated a full-Europe snapshot (~3,600+ and climbing) to whatever happened to
+          // be first in the API's list, which skews toward one geographic hub. 6000 covers current + headroom
+          // and matches the API's cap.
+          res = await api.liveFlights(6000, controller.signal);
+        }
         if (cancelled) return;
         const now = Date.now();
         lastOkAt = now;
+        // same data as last time (the snapshot changes once a minute, we poll every 15 s): nothing to re-render
+        if (res.updated_at && res.updated_at === lastSnapshotAt) {
+          setStatus("open");
+          return;
+        }
+        lastSnapshotAt = res.updated_at;
         setFlights(res.flights);
         setLastMessageAt(now);
         setStatus("open");

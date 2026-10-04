@@ -38,7 +38,7 @@ export default function DashboardPage() {
   // 2026-09-21 retrain) -- always fetch and show all of them, no
   // client-side cap. See LayerControls for the read-only count display
   // that replaced the old "corridors shown" slider.
-  const { data: corridorsData } = usePolledData(() => api.corridors(5000), 120000);
+  const { data: corridorsData } = usePolledData(() => api.corridors(5000), null); // static model artifact (changes only on retrain): load once, it is ~800 KB uncompressed
   const { data: anomaliesData } = usePolledData(() => api.anomalies(1, 100), 15000);
 
   // Only one region is ever ingested by this cloud deployment (Europe) —

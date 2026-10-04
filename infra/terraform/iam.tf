@@ -47,6 +47,12 @@ data "aws_iam_policy_document" "lambda_ingest_policy" {
     actions   = ["s3:PutObject", "s3:GetObject"]
     resources = ["${aws_s3_bucket.lake.arn}/live/*", "${aws_s3_bucket.lake.arn}/stats/*"]
   }
+
+  # the pre-gzipped map snapshot for the browser (docs/improvements/07): write-only, one key
+  statement {
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.site.arn}/live/map.json"]
+  }
   statement {
     # Same reasoning as api's LiveStateList: _update_hourly_stats does a
     # read-modify-write on stats/hourly.json, and without ListBucket a

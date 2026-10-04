@@ -62,8 +62,10 @@ resource "aws_lambda_function" "ingest" {
   # 90s, not the original 60s: fetching adsb_lol_points in parallel with a
   # stagger + retry-on-429 budget (see ADSB_LOL_* vars below) pushed a worst
   # case (several points rate-limited, each retrying) close to 60s.
-  timeout     = 90
-  memory_size = 256
+  timeout = 90
+  # 512, not 256: Lambda CPU scales with memory, and the minute is spent on JSON work (the ~10 MB history.json
+  # read-modify-write, gzip of the map snapshot) plus 8 parallel fetches. Measured in docs/improvements/06.
+  memory_size = 512
 
   filename         = data.archive_file.lambda_ingest.output_path
   source_code_hash = data.archive_file.lambda_ingest.output_base64sha256
@@ -83,6 +85,8 @@ resource "aws_lambda_function" "ingest" {
       # DynamoDB (removed; a full-table item-by-item rewrite every minute
       # was a real ~$155/mo problem, see iam.tf/docs/aws-architecture.md).
       LAKE_BUCKET_NAME = aws_s3_bucket.lake.id
+      # public site bucket: receives live/map.json (pre-gzipped map snapshot), see docs/improvements/07
+      SITE_BUCKET_NAME = aws_s3_bucket.site.id
       # OpenSky is unreachable from this Lambda's egress IP (see
       # docs/aws-architecture.md) — adsb.lol (a community aggregator) IS
       # reachable and is the primary source; the simulator below is only the
