@@ -4,7 +4,7 @@
 # A container image, not the ingest Lambda's plain zip, because this one needs numpy +
 # onnxruntime (no pure-stdlib way to run an ONNX model) — same reasoning as api/cloud/Dockerfile,
 # which is already a container image for its numpy/scikit-learn dependency.
-FROM public.ecr.aws/lambda/python:3.12
+FROM public.ecr.aws/lambda/python:3.14
 
 COPY predict/requirements.txt ${LAMBDA_TASK_ROOT}/requirements.txt
 RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
