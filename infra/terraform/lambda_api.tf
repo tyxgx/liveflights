@@ -70,7 +70,10 @@ resource "aws_lambda_function" "api" {
   package_type  = "Image"
   image_uri     = "${aws_ecr_repository.api.repository_url}@${data.aws_ecr_image.api_latest.image_digest}"
   timeout       = 30
-  memory_size   = 512
+  # 512 -> 1024: Lambda CPU scales with memory. On a page load 8 calls arrive together, each on a cold
+  # container, and the forecast one (imports sklearn, loads the model) took 23 s at 512 MB while the
+  # others took 2 s (docs/improvements/13). API usage is ~3,400 GB-s/month, so doubling is negligible.
+  memory_size = 1024
 
   tracing_config {
     mode = "Active"

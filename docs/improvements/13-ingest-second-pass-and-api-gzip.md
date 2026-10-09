@@ -15,6 +15,8 @@ On 2026-10-09 adsb.lol answered HTTP 429/420 for several of the polled circles. 
 
 - `api/cloud/app.py`: S3 client with `connect_timeout=3, read_timeout=6` and 3 standard retries. In the 2026-10-09 API logs 2 of ~1,300 calls took 22-25 s (normal ~1 s, p99 otherwise under 2 s); boto3's default read timeout is 60 s, so one stalled S3 read held a whole request. A stalled read now fails after 6 s and retries on a new connection. A cold start is unaffected (init ~1.2 s).
 
+- `infra/terraform/lambda_api.tf`: API Lambda memory 512 -> 1024 MB. After step 13 was applied, gzip worked (`/api/predictions` 1,962,128 B -> 621,880 B, page total 1.7 MB -> 795 KB, API bytes 986 KB -> 228 KB) but `/api/forecast/traffic` still failed in the browser probe: with 8 simultaneous calls (a real page load) it took 23 s while the other 7 took about 2 s; alone it takes 0.8 s. Each simultaneous call lands on a cold container, and this one imports scikit-learn and loads the model, at the ~0.3 vCPU a 512 MB function gets. More memory means proportionally more CPU. To verify after apply: the same 8 parallel curls (see commit message of this step) should all finish in a few seconds.
+
 ## Measurement of the dashboard today (headless probe, same method as step 02)
 | | 02 baseline CPU 1x | now CPU 1x | 02 baseline CPU 4x | now CPU 4x |
 |---|---|---|---|---|
