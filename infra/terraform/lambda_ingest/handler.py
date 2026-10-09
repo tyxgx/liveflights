@@ -143,6 +143,13 @@ ADSB_LOL_POINTS = _load_points()
 ADSB_LOL_MAX_WORKERS = int(os.environ.get("ADSB_LOL_MAX_WORKERS", "3"))
 ADSB_LOL_STAGGER_SECONDS = float(os.environ.get("ADSB_LOL_STAGGER_SECONDS", "0.35"))
 ADSB_LOL_RETRY_ATTEMPTS = int(os.environ.get("ADSB_LOL_RETRY_ATTEMPTS", "2"))
+# second pass over the points that failed in the first one: only started if the first pass took
+# less than this (Lambda timeout is 90 s; a pass is ~20-45 s), slower than the first pass
+_env = os.environ.get
+ADSB_LOL_SECOND_PASS_MAX_START_SECONDS = float(_env("ADSB_LOL_SECOND_PASS_MAX_START_SECONDS", "40"))
+ADSB_LOL_SECOND_PASS_PAUSE_SECONDS = float(_env("ADSB_LOL_SECOND_PASS_PAUSE_SECONDS", "2"))
+ADSB_LOL_SECOND_PASS_WORKERS = int(_env("ADSB_LOL_SECOND_PASS_WORKERS", "2"))
+ADSB_LOL_SECOND_PASS_STAGGER_SECONDS = float(_env("ADSB_LOL_SECOND_PASS_STAGGER_SECONDS", "1.0"))
 
 # Module-level so the simulator's aircraft pool persists across warm
 # invocations (used only as a fallback) instead of respawning every 5 minutes.
@@ -203,6 +210,28 @@ def _fetch_one_point(point: dict[str, float], *, start_delay: float = 0.0) -> li
     return states
 
 
+def _fetch_points(
+    points: list[dict[str, float]], *, workers: int, stagger: float
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, float]]]:
+    """One fan-out over `points`: (aircraft by icao24, points that failed)."""
+    merged: dict[str, dict[str, Any]] = {}
+    failed: list[dict[str, float]] = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_fetch_one_point, p, start_delay=i * stagger): p
+            for i, p in enumerate(points)
+        }
+        for future in as_completed(futures):
+            point = futures[future]
+            try:
+                for state in future.result():
+                    merged[state["icao24"]] = state
+            except Exception as exc:  # noqa: BLE001 - one point's failure shouldn't sink the rest
+                logger.warning("adsb.lol point %s failed: %s", point, exc)
+                failed.append(point)
+    return merged, failed
+
+
 def _fetch_adsb_lol() -> list[dict[str, Any]]:
     """Fan out to every configured point (I/O-bound HTTP calls, so threads —
     not asyncio — are the boring, sufficient choice here), staggered and
@@ -213,22 +242,31 @@ def _fetch_adsb_lol() -> list[dict[str, Any]]:
 
     A single point's failure (rate-limited past the retry budget, timeout,
     5xx) is logged and skipped, not fatal — the other points' data still
-    ships. Only an all-points failure falls through to the caller's
+    ships. A point that failed is tried once more after a short pause (second
+    pass, slower: fewer workers) as long as the first pass left enough of the
+    90 s Lambda budget: a lost point otherwise removes all of its aircraft from
+    this minute, leaves a gap in their history, and the predict Lambda then
+    skips them. Only an all-points failure falls through to the caller's
     simulator fallback.
     """
-    merged: dict[str, dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=ADSB_LOL_MAX_WORKERS) as pool:
-        futures = {
-            pool.submit(_fetch_one_point, p, start_delay=i * ADSB_LOL_STAGGER_SECONDS): p
-            for i, p in enumerate(ADSB_LOL_POINTS)
-        }
-        for future in as_completed(futures):
-            point = futures[future]
-            try:
-                for state in future.result():
-                    merged[state["icao24"]] = state
-            except Exception as exc:  # noqa: BLE001 - one point's failure shouldn't sink the rest
-                logger.warning("adsb.lol point %s failed: %s", point, exc)
+    t0 = time.monotonic()
+    merged, failed = _fetch_points(
+        ADSB_LOL_POINTS, workers=ADSB_LOL_MAX_WORKERS, stagger=ADSB_LOL_STAGGER_SECONDS
+    )
+
+    if failed and time.monotonic() - t0 < ADSB_LOL_SECOND_PASS_MAX_START_SECONDS:
+        time.sleep(ADSB_LOL_SECOND_PASS_PAUSE_SECONDS)
+        recovered, still_failed = _fetch_points(
+            failed,
+            workers=ADSB_LOL_SECOND_PASS_WORKERS,
+            stagger=ADSB_LOL_SECOND_PASS_STAGGER_SECONDS,
+        )
+        for icao, state in recovered.items():
+            merged.setdefault(icao, state)  # first-pass observation of the same aircraft stays
+        logger.info(
+            "adsb.lol second pass: %d/%d failed points recovered (+%d aircraft)",
+            len(failed) - len(still_failed), len(failed), len(recovered),
+        )
 
     if not merged:
         raise RuntimeError("adsb.lol returned zero aircraft across all points")

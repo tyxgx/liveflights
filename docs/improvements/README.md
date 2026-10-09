@@ -27,5 +27,6 @@ Steps marked **apply** need a `terraform apply` run by the owner (the agent envi
 | 10 | [Accuracy drift investigation: the metric was lying](10-accuracy-metric-honesty.md) | measure + fix | code done and tested 2026-10-07, **needs `terraform apply`** |
 | 11 | Canvas renderer behind a flag, compare, then switch | frontend | planned |
 | 12 | New features: live accuracy page, replay slider, deep links and skeletons, status page | features | planned |
+| 13 | [Ingest second pass for rate-limited points + gzip on the API](13-ingest-second-pass-and-api-gzip.md) | backend + perf | code done and tested 2026-10-09, **needs `terraform apply`** |
 
 Rule for every step: measure before, change one thing, measure after, write the result here, and keep a rollback.

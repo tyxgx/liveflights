@@ -52,6 +52,7 @@ import joblib
 import numpy as np
 from botocore.exceptions import ClientError
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from mangum import Mangum
 from utils.airlines import callsign_to_airline
 
@@ -60,6 +61,9 @@ app = FastAPI(
     description="Serverless live-data API — see docs/aws-architecture.md.",
     version="0.3.0-cloud-ml",
 )
+# JSON compresses ~6x (a live /api/predictions answer is ~2.4 MB raw); small answers stay plain.
+# Mangum base64-encodes the gzip body and API Gateway decodes it; browsers decompress on their own.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 s3 = boto3.client("s3")
 
