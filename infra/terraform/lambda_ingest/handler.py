@@ -56,12 +56,16 @@ s3 = boto3.client("s3")
 
 FIREHOSE_STREAM_NAME = os.environ["FIREHOSE_STREAM_NAME"]
 LAKE_BUCKET_NAME = os.environ["LAKE_BUCKET_NAME"]
-# Public site bucket: the browser reads a small pre-gzipped map snapshot straight from S3 instead of pulling
-# 1.6 MB through API Gateway + Lambda on every poll. Optional: unset = feature off (the API path still works).
+# Public site bucket: the browser reads a small pre-gzipped map snapshot straight from S3 instead
+# of pulling 1.6 MB through API Gateway + Lambda on every poll. Optional: unset = feature off
+# (the API path still works).
 SITE_BUCKET_NAME = os.environ.get("SITE_BUCKET_NAME", "")
 MAP_SNAPSHOT_KEY = "live/map.json"
-# fields the web app never reads; dropped from the map snapshot only (live/latest.json and bronze keep all 16)
-MAP_DROP_FIELDS = frozenset({"time_position", "last_contact", "geo_altitude", "spi", "position_source"})
+# fields the web app never reads; dropped from the map snapshot only (live/latest.json and bronze
+# keep all 16)
+MAP_DROP_FIELDS = frozenset(
+    {"time_position", "last_contact", "geo_altitude", "spi", "position_source"}
+)
 SIMULATOR_REGION = os.environ.get("SIMULATOR_REGION", "india")
 SIMULATOR_AIRCRAFT_COUNT = int(os.environ.get("SIMULATOR_AIRCRAFT_COUNT", "40"))
 SIMULATOR_ANOMALY_RATE = float(os.environ.get("SIMULATOR_ANOMALY_RATE", "0.02"))
@@ -295,10 +299,12 @@ def _slim_for_map(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def _write_map_snapshot(states: list[dict[str, Any]], ingest_ts: str) -> None:
-    """Same shape as GET /api/flights/live, minus unused fields, rounded, gzipped, in the PUBLIC site bucket
-    (about 137 KB instead of 1.6 MB). 10 s max-age: the map polls every 15 s and the data changes once a minute."""
+    """Same shape as GET /api/flights/live, minus unused fields, rounded, gzipped, in the PUBLIC
+    site bucket (about 137 KB instead of 1.6 MB). 10 s max-age: the map polls every 15 s and the
+    data changes once a minute."""
     body = json.dumps(
-        {"count": len(states), "updated_at": ingest_ts, "flights": [_slim_for_map(s) for s in states]},
+        {"count": len(states), "updated_at": ingest_ts,
+         "flights": [_slim_for_map(s) for s in states]},
         separators=(",", ":"),
     ).encode()
     s3.put_object(
@@ -478,7 +484,8 @@ def handler(event: dict, context: object) -> dict:
     timings["history"] = round(time.monotonic() - t, 2)
 
     timings["total"] = round(time.monotonic() - t0, 2)
-    # one greppable line per run: where the seconds go (fetch vs each S3 write); see docs/improvements/06
+    # one greppable line per run: where the seconds go (fetch vs each S3 write);
+    # see docs/improvements/06
     logger.info("PHASE_TIMINGS_S %s aircraft=%d", json.dumps(timings), len(states))
 
     return {"statusCode": 200, "fetched": len(states), "source": states[0]["source"]}

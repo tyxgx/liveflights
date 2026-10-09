@@ -21,6 +21,10 @@ COPY ml/features.py ${LAMBDA_TASK_ROOT}/features.py
 # standing data is CC0 and small enough (~22 MB) to bundle straight into the image instead of an
 # S3 round trip on every cold start.
 COPY ml/route_lookup.py ${LAMBDA_TASK_ROOT}/route_lookup.py
+
+# wake-class / military lookup, same VRS-derived mapping the model was trained with (scripts/build_static_meta.py)
+COPY ml/static_meta.py ${LAMBDA_TASK_ROOT}/static_meta.py
+COPY predict/static_meta.json ${LAMBDA_TASK_ROOT}/static_meta.json
 COPY data/vrs/routes.csv ${LAMBDA_TASK_ROOT}/data/vrs/routes.csv
 COPY data/vrs/airports.csv ${LAMBDA_TASK_ROOT}/data/vrs/airports.csv
 

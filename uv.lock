@@ -1240,6 +1240,7 @@ dbt = [
     { name = "dbt-postgres" },
 ]
 dev = [
+    { name = "boto3" },
     { name = "numpy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1292,6 +1293,7 @@ dbt = [
     { name = "dbt-postgres", specifier = ">=1.8,<1.9" },
 ]
 dev = [
+    { name = "boto3", specifier = ">=1.35" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },

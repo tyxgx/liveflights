@@ -30,8 +30,16 @@ import boto3
 import numpy as np
 import onnxruntime as ort
 from botocore.exceptions import ClientError
-from features import HIST, window_s, window_s_dest, window_x  # vendored: COPY ml/features.py
+from features import (  # vendored: COPY ml/features.py
+    FEATURES_VERSION,
+    HIST,
+    window_s,
+    window_s_dest,
+    window_x,
+)
 from route_lookup import RouteTable, load_route_table  # vendored: COPY ml/route_lookup.py
+from static_meta import StaticMeta  # vendored: COPY ml/static_meta.py
+from static_meta import load as load_static_meta
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -62,13 +70,34 @@ STEP_S = 60.0  # window rows must be this far apart (matches training's 60 s spa
 STEP_TOL_S = 15.0  # a live poll is not exactly 60.000s apart; accept this much jitter per gap
 HORIZON_S = 300.0  # +5 minutes
 EVAL_TOL_S = 45.0  # accept an actual reading within this many seconds of the target time
+HIST_BIN_KM = 0.1  # daily error histogram: 0.1 km bins up to 50 km, the last bin is "50 km or more"
+HIST_BINS = 501
 MAX_PLAUSIBLE_SPEED_KMH = 1200.0  # generous ceiling for any aircraft in this feed (fastest
 # civilian cruise is ~950 km/h) - used to reject eval matches that imply faster travel than any
 # real aircraft here could do; see _eval_pending's plausibility check
 
+STATIC_META_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static_meta.json")
+
 _model: ort.InferenceSession | None = None
 _norm: dict[str, Any] | None = None
 _routes: RouteTable | None = None
+_static: StaticMeta | None = None
+
+
+def _check_features_version(norm: dict[str, Any]) -> None:
+    """Refuse a model trained with a different feature version than the vendored ml/features.py.
+
+    ml/features.py promises this guard, but trajectory_norm.json written by the current export
+    carries no `features_version`, so today it can only warn. A future export should write
+    FEATURES_VERSION into the norm file; from then on a mismatch stops serving instead of
+    silently predicting from the wrong inputs."""
+    trained = norm.get("features_version")
+    if trained is None:
+        logger.warning("trajectory_norm.json has no features_version; cannot verify feature "
+                       "parity (serving code is version %d)", FEATURES_VERSION)
+    elif trained != FEATURES_VERSION:
+        raise RuntimeError(
+            f"model trained with features v{trained}, serving code is v{FEATURES_VERSION}")
 
 
 def _load_model() -> tuple[ort.InferenceSession, dict[str, Any]]:
@@ -79,6 +108,7 @@ def _load_model() -> tuple[ort.InferenceSession, dict[str, Any]]:
         _model = ort.InferenceSession(obj["Body"].read(), providers=["CPUExecutionProvider"])
         norm_obj = s3.get_object(Bucket=LAKE_BUCKET_NAME, Key=NORM_KEY)
         _norm = json.loads(norm_obj["Body"].read())
+        _check_features_version(_norm)
         logger.info("Loaded model %s (use_extra=%s, use_dest=%s)", MODEL_KEY,
                    _norm.get("use_extra"), _norm.get("use_dest"))
     return _model, _norm
@@ -219,6 +249,23 @@ def _predict_batch(icaos: list[str], rows_list: list[np.ndarray], metas: list[di
     return out
 
 
+def _position_at(reading: list[float], ts: float) -> tuple[float, float]:
+    """Where this reading's aircraft was (or will be) at time `ts`, by flying its own ground speed
+    and track from the reading's timestamp. The nearest stored reading is rarely exactly at the
+    prediction's target time (jitter of up to EVAL_TOL_S); at ~250 m/s each second of offset is
+    250 m of fake model error, so the actual position must be moved to the target time before the
+    two are compared (see docs/improvements/10-accuracy-metric-honesty.md). Falls back to the raw
+    position if speed or track is missing."""
+    lat, lon, gs_ms, track_deg = reading[1], reading[2], reading[4], reading[5]
+    if gs_ms != gs_ms or track_deg != track_deg:  # NaN
+        return lat, lon
+    dist_km = gs_ms * (ts - reading[0]) / 1000.0
+    trk = np.radians(track_deg)
+    dlat = dist_km * np.cos(trk) / 111.32
+    dlon = dist_km * np.sin(trk) / (111.32 * max(np.cos(np.radians(lat)), 1e-6))
+    return lat + float(dlat), lon + float(dlon)
+
+
 def _eval_pending(pending: dict[str, dict], history: dict[str, dict]) -> tuple[dict, list[dict]]:
     """Compare due predictions (target_ts already passed) against the closest actual reading.
 
@@ -262,14 +309,16 @@ def _eval_pending(pending: dict[str, dict], history: dict[str, dict]) -> tuple[d
             if travel_km / elapsed_h > MAX_PLAUSIBLE_SPEED_KMH:
                 continue  # not this aircraft's real motion - drop the match, not a model error
 
-        dlat, dlon = best[1] - pred["pred_lat_5min"], best[2] - pred["pred_lon_5min"]
+        # compare at the TARGET time, not at whatever time the nearest reading happens to be
+        act_lat, act_lon = _position_at(best, pred["target_ts"])
+        dlat, dlon = act_lat - pred["pred_lat_5min"], act_lon - pred["pred_lon_5min"]
         err = (
-            (dlat * km_per_deg) ** 2 + (dlon * km_per_deg * np.cos(np.radians(best[1]))) ** 2
+            (dlat * km_per_deg) ** 2 + (dlon * km_per_deg * np.cos(np.radians(act_lat))) ** 2
         ) ** 0.5
         records.append({
             "icao": icao, "made_at": pred["made_at"], "target_ts": pred["target_ts"],
             "pred_lat": pred["pred_lat_5min"], "pred_lon": pred["pred_lon_5min"],
-            "actual_lat": round(best[1], 5), "actual_lon": round(best[2], 5),
+            "actual_lat": round(act_lat, 5), "actual_lon": round(act_lon, 5),
             "actual_ts": best[0], "error_km": round(float(err), 3),
             "had_route": pred.get("route") is not None,
         })
@@ -302,6 +351,20 @@ def _append_eval_log(records: list[dict]) -> None:
     _put_json(key, existing)
 
 
+def hist_quantile(hist: list[int], q: float) -> float:
+    """q-quantile of the errors counted in `hist` (0.1 km bins), interpolated inside the bin."""
+    total = sum(hist)
+    if total == 0:
+        return 0.0
+    target, seen = q * total, 0
+    for i, count in enumerate(hist):
+        if count and seen + count >= target:
+            frac = (target - seen) / count
+            return round((i + frac) * HIST_BIN_KM, 3)
+        seen += count
+    return round(len(hist) * HIST_BIN_KM, 3)
+
+
 def _update_metrics(errors_km: list[float]) -> None:
     """Permanent, tiny: one row per day (count, mean/median/p90 of +5min error), like the ingest
     Lambda's hourly-stats object but never trimmed to a short window - this is the "how accurate
@@ -321,36 +384,55 @@ def _update_metrics(errors_km: list[float]) -> None:
     arr = np.array(errors_km)
     today = days[-1] if days and days[-1]["day"] == day_key else None
     if today is None:
-        today = {"day": day_key, "n": 0, "sum_km": 0.0, "sq_sum_km2": 0.0, "sample_p90_km": []}
+        today = {"day": day_key, "n": 0, "sum_km": 0.0, "sq_sum_km2": 0.0}
         days.append(today)
     today["n"] += len(errors_km)
     today["sum_km"] += float(arr.sum())
     today["sq_sum_km2"] += float((arr ** 2).sum())
-    today["sample_p90_km"] = (today["sample_p90_km"] + errors_km)[-2000:]  # bounded p90 reservoir
     today["mean_km"] = round(today["sum_km"] / today["n"], 3)
-    today["p90_km"] = round(float(np.quantile(today["sample_p90_km"], 0.9)), 3)
-    # median_km, not mean_km, is the honest "how good is a typical prediction" number - the
-    # docstring above always said "mean/median/p90" but median was never actually computed until
-    # now. A single very-wrong prediction (a turning aircraft, or the icao24-reuse eval-matching
-    # bug fixed 2026-09-29) drags the mean up hard; the median barely moves. Found via a real
-    # live check: 09-28's mean was ~4.9km but its median was ~1.3km - the dashboard showing mean
-    # alone was quietly overstating how bad the model's typical prediction actually is.
-    today["median_km"] = round(float(np.quantile(today["sample_p90_km"], 0.5)), 3)
+    # median/p90 come from a whole-day histogram. Until 2026-10-07 they came from the LAST 2000
+    # errors of the day (`sample_p90_km[-2000:]`), so the dashboard's "daily median" was really
+    # "median of the most recent ~1.5 hours" - at night that is low-traffic and easy, by day it
+    # is busy and harder, which is why one day showed 1.0 km at 05:00 and 2.3 km at 19:00. See
+    # docs/improvements/10-accuracy-metric-honesty.md.
+    hist = today.setdefault("hist", [0] * HIST_BINS)
+    for e in errors_km:
+        hist[min(int(e / HIST_BIN_KM), HIST_BINS - 1)] += 1
+    today["hist_n"] = today.get("hist_n", 0) + len(errors_km)
+    if today["hist_n"] >= 200 or not today.get("sample_p90_km"):
+        today["median_km"] = hist_quantile(hist, 0.5)
+        today["p90_km"] = hist_quantile(hist, 0.9)
+        today.pop("sample_p90_km", None)  # superseded by the histogram (also shrinks the file)
+    else:  # just after switching over mid-day: keep the old numbers until the histogram has data
+        sample = today["sample_p90_km"]
+        today["median_km"] = round(float(np.quantile(sample, 0.5)), 3)
+        today["p90_km"] = round(float(np.quantile(sample, 0.9)), 3)
     days = days[-METRICS_RETENTION_DAYS:]
     _put_json(METRICS_KEY, {"days": days})
 
 
-def _static_meta(category: str) -> dict[str, float]:
-    """Placeholder static features until the VRS wake/military lookup is vendored in here too
-    (category_id can be read live; wake/military need the same tables
-    ml/scratch/build_windows_v2.py loads from data/vrs/ - not yet wired into this Lambda, see the
-    journal entry for this file)."""
+def _load_static() -> StaticMeta:
+    """Wake-class / military lookup (ml/static_meta.py), built from the same VRS data the model
+    was trained with and bundled in the image as static_meta.json. Cached per warm container."""
+    global _static
+    if _static is None:
+        _static = load_static_meta(STATIC_META_PATH)
+        logger.info("Loaded static meta: %d type codes, %d military ranges",
+                    len(_static.wake_by_type), len(_static.mil_ranges))
+    return _static
+
+
+def _static_meta(category: str, type_code: str | None, icao: str) -> dict[str, float]:
+    """The model's static features for one aircraft, built the way training built them
+    (ml/scratch/build_windows_v2.py `static_tables`). Until 2026-10-07 this hardcoded wake_id=-1 and
+    is_mil=0 for every aircraft, so the live model saw different inputs than it was trained on."""
     cat = category or ""
     valid = len(cat) == 2 and cat[0] in "ABC" and cat[1].isdigit()
     cat_id = ("ABC".index(cat[0]) * 8 + int(cat[1])) if valid else 24
+    static = _load_static()
     return {
-        "cat_id": float(cat_id), "wake_id": -1.0,
-        "is_heli": 1.0 if cat == "A7" else 0.0, "is_mil": 0.0,
+        "cat_id": float(cat_id), "wake_id": float(static.wake_id(type_code)),
+        "is_heli": 1.0 if cat == "A7" else 0.0, "is_mil": float(static.is_military(icao)),
     }
 
 
@@ -374,7 +456,7 @@ def handler(event: dict, context: object) -> dict:
             continue
         icaos.append(icao)
         windows.append(window)
-        metas.append(_static_meta(entry.get("category")))
+        metas.append(_static_meta(entry.get("category"), entry.get("type_code"), icao))
         route_list.append(routes.get(entry.get("callsign") or ""))
 
     use_dest = bool(norm.get("use_dest"))

@@ -23,7 +23,9 @@ Steps marked **apply** need a `terraform apply` run by the owner (the agent envi
 | 06 | [Ingest timings + memory](06-ingest-timings-and-memory.md): see where 18 s goes, 256 to 512 MB | infra | written, **needs `terraform apply`** (result pending) |
 | 07 | [Static pre-gzipped map snapshot from S3](07-static-map-snapshot.md) (+ corridors loaded once) | infra + frontend | frontend live; infra needs the same `terraform apply` |
 | 08 | ["How it works" on the landing page and dashboard](08-how-it-works-on-the-site.md) | frontend | done and live 2026-10-04 |
-| 09 | Canvas renderer behind a flag, compare, then switch | frontend | planned |
-| 10 | New features: live accuracy page, replay slider, deep links and skeletons, status page | features | planned |
+| 09 | [Train/serve skew: wake class and military flag](09-train-serve-skew-wake-military.md) | ml serving | code done and tested 2026-10-07, **needs `terraform apply`** |
+| 10 | [Accuracy drift investigation: the metric was lying](10-accuracy-metric-honesty.md) | measure + fix | code done and tested 2026-10-07, **needs `terraform apply`** |
+| 11 | Canvas renderer behind a flag, compare, then switch | frontend | planned |
+| 12 | New features: live accuracy page, replay slider, deep links and skeletons, status page | features | planned |
 
 Rule for every step: measure before, change one thing, measure after, write the result here, and keep a rollback.

@@ -21,7 +21,7 @@ ONNX opset 17 (read from the file on 2026-10-03). Inputs (raw, un-normalised; no
 | `S` | (n, 14) float32 | static features: last position, hour and weekday (sin/cos), ADS-B category, wake class, helicopter, military, plus 4 destination features (`window_s` and `S_NAMES_DEST` in `ml/features.py`) |
 
 Outputs: `pos` (n, 30, 2), `hdg` (n, 5, 2), `spd` (n, 5). `X` and `S` must be built by `ml/features.py`: the same code trains and serves the
-model, and `FEATURES_VERSION` guards against a mismatch.
+model, and the predict Lambda checks `features_version` in `trajectory_norm.json` against `FEATURES_VERSION` (the currently deployed norm file has no version yet, so today it only logs a warning).
 
 ```python
 import numpy as np, onnxruntime as ort

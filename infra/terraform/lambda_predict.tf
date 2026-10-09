@@ -40,6 +40,8 @@ resource "null_resource" "predict_image" {
     dockerfile_hash   = filesha256("${path.module}/../../predict/Dockerfile")
     requirements_hash = filesha256("${path.module}/../../predict/requirements.txt")
     features_hash     = filesha256("${path.module}/../../ml/features.py")
+    static_meta_hash  = filesha256("${path.module}/../../ml/static_meta.py")
+    static_json_hash  = filesha256("${path.module}/../../predict/static_meta.json")
     routelookup_hash  = filesha256("${path.module}/../../ml/route_lookup.py")
     # data/vrs/*.csv is gitignored (large reference data, downloaded locally via
     # ml/scratch/download_vrs.sh) - absent on a fresh CI checkout, where `terraform validate`

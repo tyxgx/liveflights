@@ -1,4 +1,4 @@
-"""The ingest Lambda's browser-facing map snapshot: slimmed, rounded, gzipped, same shape as the API response."""
+"""The ingest Lambda's browser-facing map snapshot: slim, rounded, gzipped, API-shaped."""
 
 from __future__ import annotations
 
@@ -46,8 +46,9 @@ def test_map_snapshot_is_gzipped_slim_and_api_shaped(monkeypatch):
     f = doc["flights"][0]
     for dropped in ("time_position", "last_contact", "geo_altitude", "spi", "position_source"):
         assert dropped not in f
-    for kept in ("icao24", "callsign", "origin_country", "latitude", "longitude", "baro_altitude", "on_ground",
-                 "velocity", "true_track", "vertical_rate", "squawk", "source", "ingest_ts"):
+    for kept in ("icao24", "callsign", "origin_country", "latitude", "longitude", "baro_altitude",
+                 "on_ground", "velocity", "true_track", "vertical_rate", "squawk", "source",
+                 "ingest_ts"):
         assert kept in f
     assert f["latitude"] == 54.20032 and f["longitude"] == -8.69898 and f["velocity"] == 253.3
 
