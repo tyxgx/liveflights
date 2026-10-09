@@ -50,6 +50,7 @@ import os
 import boto3
 import joblib
 import numpy as np
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
@@ -65,7 +66,14 @@ app = FastAPI(
 # Mangum base64-encodes the gzip body and API Gateway decodes it; browsers decompress on their own.
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-s3 = boto3.client("s3")
+# A stalled S3 read used to hold a request for 22-25 s (2 of ~1,300 calls in the 2026-10-09 logs,
+# normal is ~1 s) because boto3's default read timeout is 60 s. Fail fast, retry on a new socket.
+s3 = boto3.client(
+    "s3",
+    config=Config(
+        connect_timeout=3, read_timeout=6, retries={"max_attempts": 3, "mode": "standard"}
+    ),
+)
 
 LAKE_BUCKET = os.environ["LAKE_BUCKET"]
 LIVE_SNAPSHOT_KEY = "live/latest.json"
